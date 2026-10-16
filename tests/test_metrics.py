@@ -1,0 +1,114 @@
+"""Metrics against the course values (S01 p15, TP01, TP04 Ex 13, TP06 Ex 9) and against scikit-learn."""
+
+import numpy as np
+import pytest
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+
+from ledgar import metrics
+from ledgar.data import class_weights, frequency_band, lazy_baseline, length_stats, padded_tokens
+from ledgar.text import tokenize
+
+COURSE_C = np.array([[44, 4, 2], [2, 6, 2], [1, 1, 8]])
+
+
+def labels_from_confusion(C):
+    y_true = np.repeat(np.arange(len(C)), C.sum(axis=1))
+    y_pred = np.concatenate([np.repeat(np.arange(len(C)), row) for row in C])
+    return y_true, y_pred
+
+
+def test_course_matrix():
+    P, R = metrics.precision_recall(COURSE_C)
+    F1, macro, micro = metrics.f1_scores(COURSE_C)
+    assert np.allclose(P, [0.936, 0.545, 0.667], atol=1e-3)
+    assert np.allclose(R, [0.88, 0.60, 0.80], atol=1e-3)
+    assert np.allclose(F1, [0.907, 0.571, 0.727], atol=1e-3)
+    assert round(macro, 3) == 0.735 and round(micro, 3) == 0.829
+
+
+def test_confusion_roundtrip_and_sklearn():
+    y_true, y_pred = labels_from_confusion(COURSE_C)
+    C = metrics.confusion(y_true, y_pred, 3)
+    assert (C == COURSE_C).all()
+    P, R = metrics.precision_recall(C)
+    assert np.allclose(P, precision_score(y_true, y_pred, average=None))
+    assert np.allclose(R, recall_score(y_true, y_pred, average=None))
+    assert metrics.macro_f1(C) == pytest.approx(f1_score(y_true, y_pred, average="macro"))
+    assert metrics.f1_scores(C)[2] == pytest.approx(accuracy_score(y_true, y_pred))
+
+
+def test_toy_macro_f1():
+    assert metrics.macro_f1(np.array([[5, 1, 0], [2, 3, 1], [0, 0, 4]])) == pytest.approx(0.7527, abs=1e-4)
+
+
+def test_compute_metrics_course_case():
+    logits = np.array([[2.0, 0, 0], [0, 1, 0], [0, 3, 0], [0, 0, 1]])
+    m = metrics.compute_metrics((logits, np.array([0, 0, 1, 2])))
+    assert m["accuracy"] == pytest.approx(0.75) and m["macro_f1"] == pytest.approx(7 / 9)
+
+
+def test_lazy_classifier():
+    y_true = np.array([0] * 90 + [1] * 5 + [2] * 5)
+    y_pred = lazy_baseline(y_true, len(y_true))
+    assert (y_pred == 0).all()
+    assert metrics.accuracy(y_true, y_pred) == pytest.approx(0.90)
+    assert metrics.macro_f1_score(y_true, y_pred, 3) == pytest.approx(0.316, abs=1e-3)
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_random_labels_equal_sklearn(seed):
+    rng = np.random.default_rng(seed)
+    y_true, y_pred = rng.integers(0, 100, 2000), rng.integers(0, 100, 2000)
+    y_pred[:20] = 99  # some classes predicted but rare in y_true
+    expected = f1_score(y_true, y_pred, average="macro")
+    assert metrics.macro_f1_score(y_true, y_pred, 100) == pytest.approx(expected)
+
+
+def test_macro_f1_over_classes_with_support():
+    y_true, y_pred = np.array([0, 0, 1, 1]), np.array([0, 1, 1, 1])
+    assert metrics.macro_f1_score(y_true, y_pred, n_classes=5) == pytest.approx(
+        f1_score(y_true, y_pred, average="macro")
+    ), "classes never seen nor predicted do not count"
+    y_pred = np.array([0, 4, 1, 1])  # class 4 is predicted but has no true example (Books on validation)
+    expected = f1_score(y_true, y_pred, labels=np.unique(y_true), average="macro")
+    assert metrics.macro_f1_score(y_true, y_pred, n_classes=5) == pytest.approx(expected)
+
+
+def test_most_confused():
+    C = np.array([[10, 3, 0], [4, 8, 1], [0, 2, 9]])
+    pairs = metrics.most_confused(C, k=2, label_names=["a", "b", "c"])
+    assert (pairs.loc[0, "label_a"], pairs.loc[0, "label_b"], pairs.loc[0, "total"]) == ("a", "b", 7)
+    assert pairs.loc[1, "total"] == 3
+
+
+def test_per_class_report_sorted_by_f1():
+    y_true, y_pred = labels_from_confusion(COURSE_C)
+    report = metrics.per_class_report(y_true, y_pred, ["termination", "payment", "confidentiality"])
+    assert list(report["label"]) == ["payment", "confidentiality", "termination"]
+    assert report["support"].sum() == COURSE_C.sum()
+
+
+def test_tokenize_tp04():
+    assert tokenize("Wall St. Bears Claw Back!") == ["wall", "st", "bears", "claw", "back"]
+    assert tokenize("Section 2.1 of the Agreement") == ["section", "2", "1", "of", "the", "agreement"]
+    assert tokenize("") == []
+
+
+def test_length_stats_and_bands():
+    stats = length_stats(np.arange(1, 1001), thresholds=(500,))
+    assert stats["median"] == 500.5 and stats["max"] == 1000 and stats["share_over_500"] == 0.5
+    assert list(frequency_band(np.array([23, 600, 3167]))) == ["tail", "middle", "head"]
+
+
+def test_padded_tokens():
+    lengths = np.array([10, 100, 10, 100])
+    assert padded_tokens(lengths, max_length=50, batch_size=2, group_by_length=True) == 2 * 10 + 2 * 50
+    assert padded_tokens(lengths, max_length=512, batch_size=4) == 4 * 100
+
+
+def test_class_weights():
+    counts = np.array([23, 600, 3167])
+    balanced = class_weights(counts, "balanced")
+    assert balanced[0] == pytest.approx(counts.sum() / (3 * 23)), "scikit-learn's balanced formula"
+    soft = class_weights(counts, "sqrt")
+    assert soft.min() >= 0.5 and soft.max() <= 5 and soft[0] > soft[1] >= soft[2]

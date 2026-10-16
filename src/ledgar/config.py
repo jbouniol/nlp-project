@@ -1,0 +1,181 @@
+"""One frozen Config for every notebook, script and run (the constants block of the TPs)."""
+
+from __future__ import annotations
+
+import argparse
+import dataclasses
+import logging
+import os
+import random
+from dataclasses import dataclass, field, fields, replace
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+ROOT = Path(__file__).resolve().parents[2]
+
+# What FAST_RUN=1 changes: a per-class subset, one epoch, short sequences, few resamples.
+FAST_OVERRIDES: dict[str, Any] = {
+    "n_train_per_class": 30,
+    "n_eval_per_class": 5,
+    "epochs": 1,
+    "lstm_epochs": 1,
+    "max_length": 128,
+    "n_boot": 200,
+    "out_dir": ".fast/results",  # never overwrite the committed results and figures
+    "reports_dir": ".fast/reports",
+}
+
+
+@dataclass(frozen=True)
+class Config:
+    """Hyperparameters and paths. Defaults are the starting values of the design plan.
+
+    Build it with `Config.from_env()` (notebooks) or `Config.from_args()` (scripts), never by
+    editing a value in place: the same object is saved to `results/<run>/config.json`.
+    """
+
+    # Reproducibility
+    seed: int = 0
+    fast_run: bool = False
+    device: str = "auto"  # "auto" -> cuda, then mps, then cpu
+
+    # Data: the official LexGLUE splits, pinned to one revision of the dataset repository
+    dataset_name: str = "coastalcph/lex_glue"
+    dataset_config: str = "ledgar"
+    dataset_revision: str = "c23fdff1a6bf74e0e1a71cb86f1e781d37da888c"  # Hub commit of 2024-01-04
+    n_classes: int = 100
+    n_train_per_class: int | None = None  # None = the full split; set by FAST_RUN
+    n_eval_per_class: int | None = None
+
+    # m1: TF-IDF + logistic regression
+    tfidf_ngram_max: int = 2
+    tfidf_min_df: int = 2
+    logreg_c: float = 1.0
+    class_weight: str | None = None
+
+    # m3: LSTM
+    min_freq: int = 2
+    max_words: int = 476  # p99 of training clause length in words (01_explore_ledgar)
+    emb_dim: int = 100
+    hidden: int = 128
+    bidirectional: bool = False
+    dropout: float = 0.3
+    lstm_lr: float = 2e-3
+    lstm_batch_size: int = 64
+    lstm_epochs: int = 8
+    glove_path: str = "data/glove-wiki-gigaword-50.gz"
+
+    # m4: DistilBERT, full fine-tuning and LoRA
+    model_name: str = "distilbert-base-uncased"
+    max_length: int = 512  # 98.2 % of training clauses whole (01_explore_ledgar, docs/DECISIONS.md)
+    group_by_length: bool = True  # Trainer sampler: batches of similar lengths, little padding
+    batch_size: int = 32
+    eval_batch_size: int = 64
+    epochs: int = 3
+    lr_full: float = 3e-5
+    lr_lora: float = 5e-4
+    warmup_ratio: float = 0.1
+    weight_decay: float = 0.01
+    lora_r: int = 8
+    lora_alpha: int = 16
+    lora_targets: tuple[str, ...] = ("q_lin", "v_lin")
+    lora_dropout: float = 0.05
+
+    # Evaluation
+    n_boot: int = 1000
+
+    # Paths (relative to the repository root)
+    data_dir: str = "data"
+    out_dir: str = "results"
+    reports_dir: str = "reports"
+    extra: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_env(cls, **overrides: Any) -> Config:
+        """Defaults, then FAST_RUN values if FAST_RUN=1, then SEED / DEVICE, then overrides."""
+        values: dict[str, Any] = {"fast_run": os.environ.get("FAST_RUN", "0") == "1"}
+        if "SEED" in os.environ:
+            values["seed"] = int(os.environ["SEED"])
+        if "DEVICE" in os.environ:
+            values["device"] = os.environ["DEVICE"]
+        values.update(overrides)
+        if values.get("fast_run"):
+            values = {**FAST_OVERRIDES, **values}
+        cfg = cls(**values)
+        return replace(cfg, device=resolve_device(cfg.device))
+
+    @classmethod
+    def from_args(cls, argv: list[str] | None = None) -> tuple[Config, argparse.Namespace]:
+        """One `--field-name` option per field (e.g. `--lr-full 2e-5 --seed 1`), plus `--model`, `--name`."""
+        parser = argparse.ArgumentParser(description="Train or evaluate one LEDGAR classifier run.")
+        parser.add_argument("--model", choices=["lazy", "tfidf", "lstm", "bert", "lora"], default=None)
+        parser.add_argument("--name", default=None, help="run directory name under out_dir")
+        for f in fields(cls):
+            if f.name == "extra":
+                continue
+            opt = "--" + f.name.replace("_", "-")
+            default = f.default
+            if isinstance(default, bool):
+                parser.add_argument(opt, action=argparse.BooleanOptionalAction, default=None)
+            elif isinstance(default, tuple):
+                parser.add_argument(opt, nargs="+", default=None)
+            else:
+                parser.add_argument(opt, type=_parse_scalar, default=None)
+        args = parser.parse_args(argv)
+        overrides = {
+            f.name: tuple(v) if isinstance(v, list) else v
+            for f in fields(cls)
+            if (v := getattr(args, f.name, None)) is not None
+        }
+        return cls.from_env(**overrides), args
+
+    def to_dict(self) -> dict[str, Any]:
+        """JSON-friendly view (tuples become lists)."""
+        return {k: list(v) if isinstance(v, tuple) else v for k, v in dataclasses.asdict(self).items()}
+
+    def path(self, *parts: str) -> Path:
+        """Absolute path under the repository root, e.g. `cfg.path(cfg.out_dir, "tfidf")`."""
+        return ROOT.joinpath(*parts)
+
+    def __str__(self) -> str:
+        shown = ["fast_run", "seed", "device", "model_name", "max_length", "max_words", "epochs"]
+        return " | ".join(f"{k}={getattr(self, k)}" for k in shown)
+
+
+def _parse_scalar(text: str) -> Any:
+    """Parse a CLI value: int, then float, then None, else the string itself."""
+    for cast in (int, float):
+        try:
+            return cast(text)
+        except ValueError:
+            pass
+    return None if text.lower() == "none" else text
+
+
+def resolve_device(device: str = "auto") -> str:
+    """Return "cuda", "mps" or "cpu"; "auto" picks the first available in that order."""
+    if device != "auto":
+        return device
+    import torch
+
+    if torch.cuda.is_available():
+        return "cuda"
+    if torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
+def set_seed(seed: int) -> None:
+    """Seed python, numpy and torch (CPU, CUDA, MPS). Call it at the top and before each model is built."""
+    import torch
+
+    random.seed(seed)
+    np.random.seed(seed)  # noqa: NPY002 (the global RNG the TPs rely on)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    logger.info("seed set to %d", seed)

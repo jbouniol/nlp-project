@@ -1,0 +1,27 @@
+.agent/
+
+# Python
+__pycache__/
+*.py[oc]
+*.egg-info/
+build/
+dist/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Data, caches and model weights (full checkpoints live on Drive / HF Hub, not in git)
+data/
+.fast/
+models/
+checkpoints/
+results/**/checkpoint-*/
+results/**/*.safetensors
+results/**/*.bin
+!results/**/adapter_model.safetensors
+
+# OS / editors
+.DS_Store
+.vscode/
+.idea/

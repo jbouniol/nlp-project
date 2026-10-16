@@ -1,0 +1,83 @@
+{
+  "class_stats": {
+    "n_classes": 100,
+    "largest": 3167,
+    "smallest": 23,
+    "imbalance_ratio": 137.69565217391303,
+    "mean_per_class": 600.0,
+    "classes_below_1pct": 71,
+    "train_classes_below_100": 3,
+    "train_classes_below_300": 22,
+    "train_classes_below_10": 0,
+    "train_classes_missing": 0,
+    "validation_classes_below_10": 3,
+    "validation_classes_missing": 1,
+    "test_classes_below_10": 3,
+    "test_classes_missing": 0
+  },
+  "words": {
+    "median": 86.0,
+    "p90": 236.0,
+    "p95": 307.0,
+    "p99": 476.0,
+    "max": 1251,
+    "share_over_128": 0.3154,
+    "share_over_256": 0.08165,
+    "share_over_512": 0.007183333333333333
+  },
+  "max_words_p99": 476,
+  "wordpiece": {
+    "median": 106.0,
+    "p90": 291.0,
+    "p95": 381.0,
+    "p99": 589.0,
+    "max": 1771,
+    "share_over_128": 0.41065,
+    "share_over_256": 0.1351,
+    "share_over_384": 0.048933333333333336,
+    "share_over_512": 0.018033333333333332
+  },
+  "max_length_candidates": [
+    {
+      "max_length": 128,
+      "whole clauses": 0.5894,
+      "tokens, random": 7680000,
+      "tokens, grouped": 5667392,
+      "cost, random": 0.5002,
+      "cost, grouped": 0.3691
+    },
+    {
+      "max_length": 256,
+      "whole clauses": 0.8649,
+      "tokens, random": 15353536,
+      "tokens, grouped": 7637472,
+      "cost, random": 1.0,
+      "cost, grouped": 0.4974
+    },
+    {
+      "max_length": 384,
+      "whole clauses": 0.9511,
+      "tokens, random": 22405824,
+      "tokens, grouped": 8351040,
+      "cost, random": 1.4593,
+      "cost, grouped": 0.5439
+    },
+    {
+      "max_length": 512,
+      "whole clauses": 0.982,
+      "tokens, random": 27168736,
+      "tokens, grouped": 8669920,
+      "cost, random": 1.7695,
+      "cost, grouped": 0.5647
+    }
+  ],
+  "duplicates": {
+    "train (within)": 920,
+    "validation (within)": 32,
+    "test (within)": 64,
+    "train / validation": 270,
+    "train / test": 282,
+    "validation / test": 69
+  },
+  "label_conflicts": 6
+}

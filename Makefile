@@ -1,6 +1,7 @@
 PY ?= .venv/bin/python
 SEED ?= 0
 NB_OUT ?= /tmp/ledgar_nb
+CODE := $(wildcard src tests scripts notebooks)  # only the folders that exist (git keeps no empty folder)
 
 .PHONY: setup lint format test smoke notebooks table
 
@@ -9,12 +10,12 @@ setup:            ## create .venv and install the package with its pinned depend
 	uv pip install --python $(PY) -e ".[dev]" || $(PY) -m pip install -e ".[dev]"
 
 lint:             ## ruff lint + format check (code and notebooks)
-	$(PY) -m ruff check src tests scripts notebooks
-	$(PY) -m ruff format --check src tests scripts notebooks
+	$(PY) -m ruff check $(CODE)
+	$(PY) -m ruff format --check $(CODE)
 
 format:
-	$(PY) -m ruff check --fix src tests scripts notebooks
-	$(PY) -m ruff format src tests scripts notebooks
+	$(PY) -m ruff check --fix $(CODE)
+	$(PY) -m ruff format $(CODE)
 
 test:             ## unit tests (no download)
 	$(PY) -m pytest -m "not slow"

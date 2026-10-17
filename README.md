@@ -59,7 +59,7 @@ make test       # unit tests
 make smoke      # the whole pipeline on a per-class subset (FAST_RUN=1), then every notebook
 ```
 
-GPU runs (m4) on Colab: open [`colab/run_m4.ipynb`](https://colab.research.google.com/github/jbouniol/nlp-project/blob/keira/colab/run_m4.ipynb),
+GPU runs (m4) on Colab: open [`colab/run_m4.ipynb`](https://colab.research.google.com/github/jbouniol/nlp-project/blob/main/colab/run_m4.ipynb),
 the run cards of every DistilBERT and LoRA run, in order. From the command line:
 
 ```bash

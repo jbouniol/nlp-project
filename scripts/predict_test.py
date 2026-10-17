@@ -15,16 +15,17 @@ import shutil
 import numpy as np
 
 from ledgar import data, metrics, runs
-from ledgar.config import ROOT
+from ledgar.config import ROOT, Config
 from ledgar.predict import load_classifier, run_config
 
 logger = logging.getLogger("predict_test")
 
 
 def main(argv: list[str] | None = None) -> None:
+    env = Config.from_env()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--name", required=True)
-    parser.add_argument("--out-dir", default=str(ROOT / "results"))
+    parser.add_argument("--out-dir", default=str(env.path(env.out_dir)))
     parser.add_argument("--models-dir", default=None, help="where full fine-tuned weights were saved")
     parser.add_argument("--device", default="auto")
     args = parser.parse_args(argv)
@@ -51,7 +52,10 @@ def main(argv: list[str] | None = None) -> None:
     runs.save_predictions(
         dst, "test", y_true, y_pred, logits=logits, index=index, label_names=clf.label_names
     )
-    test = {"accuracy": metrics.accuracy(y_true, y_pred), "macro_f1": metrics.macro_f1_score(y_true, y_pred)}
+    test = {
+        "accuracy": metrics.accuracy(y_true, y_pred),
+        "macro_f1": metrics.macro_f1_score(y_true, y_pred, cfg.n_classes),
+    }
     runs.save_run(dst, cfg, {"test": test, "val_reproduced": float(agreement)})
     shutil.rmtree(src)
     logger.info("test %s -> %s", test, dst)

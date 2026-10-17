@@ -14,7 +14,7 @@ import json
 import numpy as np
 
 from ledgar import runs, stats
-from ledgar.config import ROOT
+from ledgar.config import ROOT, Config
 
 
 def compare_runs(a: str, b: str, n_boot: int = 1000, seed: int = 0, results: str = "results") -> dict:
@@ -36,14 +36,16 @@ def summary(r: dict) -> str:
 
 
 def main(argv: list[str] | None = None) -> None:
+    cfg = Config.from_env()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--a", required=True)
     parser.add_argument("--b", required=True)
-    parser.add_argument("--n-boot", type=int, default=1000)
-    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--n-boot", type=int, default=cfg.n_boot)
+    parser.add_argument("--seed", type=int, default=cfg.seed)
+    parser.add_argument("--out-dir", default=cfg.out_dir)
     args = parser.parse_args(argv)
-    result = compare_runs(args.a, args.b, args.n_boot, args.seed)
-    out = ROOT / "reports" / "comparisons" / f"{args.a}__vs__{args.b}.json"
+    result = compare_runs(args.a, args.b, args.n_boot, args.seed, args.out_dir)
+    out = cfg.path(cfg.reports_dir, "comparisons", f"{args.a}__vs__{args.b}.json")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(result, indent=2) + "\n")
     print(summary(result))

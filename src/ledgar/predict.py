@@ -73,10 +73,10 @@ def load_classifier(
     run_dir = Path(run_dir)
     cfg = run_config(run_dir)
     kind = json.loads((run_dir / "metrics.json").read_text())["model"]
+    names = json.loads((run_dir / "labels.json").read_text())
     if kind == "lora":
         from peft import PeftModel
 
-        names = json.loads((run_dir / "labels.json").read_text())
         base = AutoModelForSequenceClassification.from_pretrained(
             cfg.model_name,
             num_labels=len(names),
@@ -92,5 +92,4 @@ def load_classifier(
         raise ValueError(f"{run_dir.name} is a {kind!r} run: only bert and lora runs can be loaded")
     device = resolve_device(device)
     tokenizer = AutoTokenizer.from_pretrained(cfg.model_name)
-    names = [model.config.id2label[i] for i in range(cfg.n_classes)]
     return Classifier(model.to(device), tokenizer, names, cfg.max_length, device)

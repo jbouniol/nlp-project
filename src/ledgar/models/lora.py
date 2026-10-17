@@ -23,8 +23,9 @@ class LoRALinear(nn.Module):
         self.base = base
         for p in self.base.parameters():
             p.requires_grad = False
-        self.A = nn.Parameter(torch.randn(r, base.in_features) * 0.01)
-        self.B = nn.Parameter(torch.zeros(base.out_features, r))
+        dev, dt = base.weight.device, base.weight.dtype
+        self.A = nn.Parameter(torch.randn(r, base.in_features, device=dev, dtype=dt) * 0.01)
+        self.B = nn.Parameter(torch.zeros(base.out_features, r, device=dev, dtype=dt))
         self.scaling = alpha / r
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -33,11 +34,18 @@ class LoRALinear(nn.Module):
 
 def merge_lora(layer: LoRALinear) -> nn.Linear:
     """W' = W + (alpha / r) B A in a plain nn.Linear: same outputs, no cost at inference (TP06 Ex 15)."""
-    merged = nn.Linear(layer.base.in_features, layer.base.out_features, bias=layer.base.bias is not None)
+    base = layer.base
+    merged = nn.Linear(
+        base.in_features,
+        base.out_features,
+        bias=base.bias is not None,
+        device=base.weight.device,
+        dtype=base.weight.dtype,
+    )
     with torch.no_grad():
-        merged.weight.copy_(layer.base.weight + layer.scaling * layer.B @ layer.A)
-        if layer.base.bias is not None:
-            merged.bias.copy_(layer.base.bias)
+        merged.weight.copy_(base.weight + layer.scaling * layer.B @ layer.A)
+        if base.bias is not None:
+            merged.bias.copy_(base.bias)
     return merged
 
 

@@ -92,8 +92,8 @@ def save_predictions(
         table["true_label"] = [label_names[i] for i in y_true]
         table["pred_label"] = [label_names[i] for i in y_pred]
     if logits is not None:
-        z = logits - logits.max(axis=1, keepdims=True)
-        table["prob_max"] = (np.exp(z) / np.exp(z).sum(axis=1, keepdims=True)).max(axis=1).round(4)
+        exp_z = np.exp(logits - logits.max(axis=1, keepdims=True))
+        table["prob_max"] = (exp_z / exp_z.sum(axis=1, keepdims=True)).max(axis=1).round(4)
     table.to_csv(run_dir / f"pred_{split}.csv", index=False)
     return path
 
@@ -175,6 +175,8 @@ def make_manifest(
     import torch
     import transformers
 
+    if previous is not None and previous.exists() and duration_s is None:
+        return _read_json(previous)
     manifest = _read_json(previous) if previous is not None and previous.exists() else {}
     manifest.update(
         {

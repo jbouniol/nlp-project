@@ -28,3 +28,6 @@ results/**/*.bin
 
 # Search runs keep their config, metrics and history; their predictions stay local
 results/search/**/pred_*
+# LSTM weights: only seed 0 is versioned (5 MB), the other seeds stay local
+results/**/model.pt
+!results/**/*_seed0/model.pt

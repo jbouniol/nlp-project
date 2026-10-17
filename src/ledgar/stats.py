@@ -6,7 +6,7 @@ import math
 
 import numpy as np
 
-from ledgar.metrics import macro_f1_score
+from ledgar.metrics import accuracy, macro_f1_score
 
 
 def contingency(y_true: np.ndarray, pred_a: np.ndarray, pred_b: np.ndarray) -> tuple[int, int, int, int]:
@@ -63,3 +63,35 @@ def paired_bootstrap(
         diffs[r] = macro_f1_score(y_true[idx], pred_a[idx], k) - macro_f1_score(y_true[idx], pred_b[idx], k)
     low, high = np.percentile(diffs, [2.5, 97.5])
     return float(observed), float(low), float(high)
+
+
+def compare(
+    y_true: np.ndarray,
+    pred_a: np.ndarray,
+    pred_b: np.ndarray,
+    n_boot: int = 1000,
+    seed: int = 0,
+    n_classes: int = 100,
+) -> dict:
+    """The paired comparison of S06 p22-24 for two models on the same examples.
+
+    Returns the scores of both models, the contingency table, McNemar's test on per-example correctness and
+    the paired bootstrap of the macro-F1 difference (A - B), with the 5 % verdict of each test.
+    """
+    a, b, c, d = contingency(y_true, pred_a, pred_b)
+    chi2, p = mcnemar(b, c)
+    observed, low, high = paired_bootstrap(y_true, pred_a, pred_b, n_boot, seed, n_classes)
+    return {
+        "n": len(y_true),
+        "accuracy": [accuracy(y_true, pred_a), accuracy(y_true, pred_b)],
+        "macro_f1": [macro_f1_score(y_true, pred_a, n_classes), macro_f1_score(y_true, pred_b, n_classes)],
+        "contingency": {"both_correct": a, "only_a": b, "only_b": c, "both_wrong": d},
+        "mcnemar": {"chi2": chi2, "p": p, "exact": b + c < 25, "significant": p < 0.05},
+        "bootstrap": {
+            "diff": observed,
+            "low": low,
+            "high": high,
+            "n_boot": n_boot,
+            "significant": not low <= 0 <= high,
+        },
+    }

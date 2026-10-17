@@ -30,5 +30,11 @@ jobs:
         run: make lint
       - name: Unit tests
         run: make test
+      - uses: actions/cache@v6
+        with:
+          path: data
+          key: glove-wiki-gigaword-50
+      - name: GloVe 50-d (66 MB, cached)
+        run: test -f data/glove-wiki-gigaword-50.gz || make glove
       - name: Smoke run (FAST_RUN=1) and notebooks
         run: make smoke

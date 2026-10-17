@@ -91,6 +91,7 @@ def run_lstm(cfg: Config, ledgar, run_dir, search: bool) -> None:
     runs.save_run(run_dir, cfg, result, log_history=history, duration_s=seconds)
     if not search:
         torch.save(model.state_dict(), run_dir / "model.pt")
+        (run_dir / "vocab.json").write_text(json.dumps(itos) + "\n")
     logger.info("lstm: val %s | best epoch %d | %.0f s", result["val"], result["best_epoch"], seconds)
 
 

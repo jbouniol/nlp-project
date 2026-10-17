@@ -64,15 +64,16 @@ class Config:
     # m3: LSTM
     min_freq: int = 2
     max_words: int = 476  # p99 of training clause length in words (01_explore_ledgar)
-    emb_dim: int = 100  # 50 with GloVe
-    glove: bool = False  # initialise the embedding from GloVe 50-d (S04 p15)
-    lstm_class_weight: str | None = None  # None, "balanced" or "sqrt" (data.class_weights)
-    hidden: int = 128
-    bidirectional: bool = False
+    # m3 defaults = the configuration chosen on validation (scripts/search_lstm.py, docs/DECISIONS.md)
+    emb_dim: int = 50  # GloVe 50-d
+    glove: bool = True  # initialise the embedding from GloVe (S04 p15); `make glove` downloads it
+    lstm_class_weight: str | None = "sqrt"  # None, "balanced" or "sqrt" (data.class_weights)
+    hidden: int = 256
+    bidirectional: bool = True
     dropout: float = 0.3
     lstm_lr: float = 2e-3
     lstm_batch_size: int = 64
-    lstm_epochs: int = 8
+    lstm_epochs: int = 15  # every 8-epoch run of the search peaked at its last epoch
     glove_path: str = "data/glove-wiki-gigaword-50.gz"
 
     # m4: DistilBERT, full fine-tuning and LoRA

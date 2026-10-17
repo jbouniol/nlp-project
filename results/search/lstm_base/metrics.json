@@ -1,0 +1,11 @@
+{
+  "model": "lstm",
+  "vocabulary": 13252,
+  "unk_rate_val": 0.0026040475344244526,
+  "trainable_params": 1455860,
+  "best_epoch": 8,
+  "val": {
+    "accuracy": 0.8324,
+    "macro_f1": 0.745197148999153
+  }
+}

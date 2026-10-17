@@ -1,0 +1,8 @@
+step,run,change,val_macro_f1,val_accuracy,best_epoch,trainable_params,glove_coverage,kept
+start,lstm_base,-,0.7452,0.8324,8,1455860,,True
+init,lstm_glove,"{""glove"": true, ""emb_dim"": 50}",0.7454,0.8324,8,767660,0.892,True
+direction,lstm_bilstm,"{""bidirectional"": true}",0.7724,0.8441,8,872620,0.892,True
+hidden size,lstm_h256,"{""hidden"": 256}",0.7753,0.8482,8,1344684,0.892,True
+learning rate,lstm_lr1e-3,"{""lstm_lr"": 0.001}",0.7504,0.8357,8,1344684,0.892,False
+class weights,lstm_sqrt_weights,"{""lstm_class_weight"": ""sqrt""}",0.7764,0.8393,8,1344684,0.892,True
+dropout,lstm_dropout0.5,"{""dropout"": 0.5}",0.7487,0.827,8,1344684,0.892,False

@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from scipy.stats import binomtest
 
-from ledgar.stats import contingency, mcnemar, paired_bootstrap
+from ledgar.stats import compare, contingency, mcnemar, paired_bootstrap
 
 
 def test_contingency_course_case():
@@ -43,3 +43,16 @@ def test_bootstrap_detects_a_clear_gap():
     bad = np.where(rng.random(2000) < 0.6, y, rng.integers(0, 10, 2000))
     observed, low, high = paired_bootstrap(y, good, bad, n_boot=200)
     assert low <= observed <= high and low > 0, "0 is outside the interval: significant"
+
+
+def test_compare_bundles_the_paired_tests():
+    rng = np.random.default_rng(2)
+    y = rng.integers(0, 5, 400)
+    a = np.where(rng.random(400) < 0.9, y, rng.integers(0, 5, 400))
+    b = np.where(rng.random(400) < 0.6, y, rng.integers(0, 5, 400))
+    r = compare(y, a, b, n_boot=100, n_classes=5)
+    t = r["contingency"]
+    assert t["both_correct"] + t["only_a"] == round(r["accuracy"][0] * 400), "a + b = correct answers of A"
+    assert r["mcnemar"]["significant"] and r["bootstrap"]["significant"]
+    same = compare(y, a, a, n_boot=50, n_classes=5)
+    assert not same["mcnemar"]["significant"] and same["bootstrap"]["diff"] == 0.0

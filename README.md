@@ -56,14 +56,23 @@ make test       # unit tests
 make smoke      # the whole pipeline on a per-class subset (FAST_RUN=1), then every notebook
 ```
 
-On Colab: `!pip install -r requirements.txt && pip install -e .`, then open a notebook from `notebooks/`.
+GPU runs (m4) on Colab: open [`colab/run_m4.ipynb`](https://colab.research.google.com/github/jbouniol/nlp-project/blob/keira/colab/run_m4.ipynb),
+the run cards of every DistilBERT and LoRA run, in order. From the command line:
+
+```bash
+python scripts/train.py --model tfidf                                  # m1 (= make m1)
+python scripts/search_lstm.py                                          # m3: one factor at a time, on validation
+python scripts/train.py --model lora --search --lr-lora 5e-4 --seed 0  # m4: a validation-only run
+python scripts/predict_test.py --name lora_lr5e-4_seed0                # the chosen run predicts the test split, once
+```
 
 ## Repository map
 
 ```text
 src/ledgar/     package: config, data, metrics, models, training, run bookkeeping
 notebooks/      one notebook per milestone, readable top to bottom (outputs committed)
-scripts/        the same pipeline without a notebook (train.py, evaluate.py, make_results_table.py)
+scripts/        the same pipeline without a notebook (train.py, search_lstm.py, predict_test.py, ...)
+colab/          run cards for the GPU runs
 results/        one directory per run: config, metrics, predictions, log, manifest
 reports/        figures, results table, model card
 docs/           DECISIONS.md, the log of design choices

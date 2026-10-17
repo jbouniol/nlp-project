@@ -107,9 +107,9 @@ def test_fast_run_lstm_script(tmp_path):
 
 
 @pytest.mark.slow
-def test_fast_run_lora_script(tmp_path):
-    """m4 from the command line (LoRA on CPU): complete run, adapter saved, predictions in dataset order."""
-    cmd = [
+def test_fast_run_lora_search_then_predict_test(tmp_path):
+    """m4 on CPU: a LoRA search run (validation only), then its promotion with the test predicted once."""
+    train = [
         sys.executable,
         str(ROOT / "scripts" / "train.py"),
         "--model",
@@ -118,14 +118,26 @@ def test_fast_run_lora_script(tmp_path):
         "--device",
         "cpu",
     ]
-    subprocess.run(
-        [*cmd, "--out-dir", str(tmp_path), "--checkpoint-dir", str(tmp_path / "ckpt")], check=True, cwd=ROOT
-    )
-    run_dir = tmp_path / "lora_seed0"
-    assert runs.missing_files(run_dir) == [] and (run_dir / "adapter" / "adapter_model.safetensors").exists()
-    m = runs.load_run(run_dir)["metrics"]
+    out = ["--out-dir", str(tmp_path), "--checkpoint-dir", str(tmp_path / "ckpt"), "--name", "lora_s0"]
+    subprocess.run([*train, "--search", *out], check=True, cwd=ROOT)
+    search_dir = tmp_path / "search" / "lora_s0"
+    assert (search_dir / "adapter" / "adapter_model.safetensors").exists()
+    assert not (search_dir / "pred_test.npz").exists() and not any((tmp_path / "ckpt").glob("*/checkpoint-*"))
+    m = runs.load_run(search_dir)["metrics"]
     assert abs(m["initial_loss"] - np.log(100)) < 0.5, "random head: initial loss close to ln(100)"
     assert m["trainable_params"] == 147_456 + 768 * 768 + 768 + 768 * 100 + 100, "LoRA q/v + the whole head"
-    pred = runs.load_predictions(run_dir, "val")
-    assert m["val"]["accuracy"] == pytest.approx(np.mean(pred["y_true"] == pred["y_pred"]))
-    assert m["val"]["accuracy"] > 0.05, "above chance: the predictions line up with the clauses"
+    promote = [
+        sys.executable,
+        str(ROOT / "scripts" / "predict_test.py"),
+        "--name",
+        "lora_s0",
+        "--device",
+        "cpu",
+    ]
+    subprocess.run([*promote, "--out-dir", str(tmp_path)], check=True, cwd=ROOT)
+    final = runs.load_run(tmp_path / "lora_s0")["metrics"]
+    assert runs.missing_files(tmp_path / "lora_s0") == [] and not search_dir.exists()
+    assert final["val_reproduced"] == 1.0, "the saved adapter gives back the validation predictions"
+    assert final["val"]["accuracy"] > 0.05 and final["test"]["accuracy"] > 0.05, (
+        "predictions line up with clauses"
+    )

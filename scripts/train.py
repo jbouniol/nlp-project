@@ -7,7 +7,10 @@ FAST_RUN=1 python scripts/train.py --model tfidf           # quick check, writte
 
 from __future__ import annotations
 
+import json
 import logging
+import shutil
+import time
 
 import numpy as np
 import torch
@@ -92,8 +95,6 @@ def run_lstm(cfg: Config, ledgar, run_dir, search: bool) -> None:
 
 
 def run_bert(cfg: Config, ledgar, run_dir, name: str, lora: bool, search: bool) -> None:
-    import time
-
     from transformers import DataCollatorWithPadding
 
     labels = data.label_names(ledgar)
@@ -113,10 +114,13 @@ def run_bert(cfg: Config, ledgar, run_dir, name: str, lora: bool, search: bool) 
         "memory_gb_estimate": train_bert.training_memory_gb(total - trainable, trainable),
         "initial_loss": train_bert.initial_loss(model, {k: v.to(model.device) for k, v in first.items()}),
     }
-    args = train_bert.make_args(cfg, cfg.path(cfg.checkpoint_dir, name), cfg.lr_lora if lora else cfg.lr_full)
+    checkpoints = cfg.path(cfg.checkpoint_dir, name)
+    args = train_bert.make_args(cfg, checkpoints, cfg.lr_lora if lora else cfg.lr_full)
     trainer = train_bert.build_trainer(model, args, tok["train"], tok["validation"], tokenizer)
     start = time.perf_counter()
-    trainer.train()
+    trainer.train(
+        resume_from_checkpoint=any(checkpoints.glob("checkpoint-*")) or None
+    )  # resumes a cut session
     seconds = time.perf_counter() - start
     result["global_step"] = trainer.state.global_step
     for split, key in (
@@ -131,10 +135,12 @@ def run_bert(cfg: Config, ledgar, run_dir, name: str, lora: bool, search: bool) 
         runs.save_predictions(run_dir, split, y_true, y_pred, logits=logits, index=index, label_names=labels)
         result[split] = scores(y_true, y_pred, cfg.n_classes)
     runs.save_run(run_dir, cfg, result, log_history=trainer.state.log_history, duration_s=seconds)
+    (run_dir / "labels.json").write_text(json.dumps(labels) + "\n")
     if lora:
         trainer.model.save_pretrained(run_dir / "adapter")  # a few MB: versioned
-    elif not search:
+    else:
         trainer.save_model(cfg.path(cfg.models_dir, name))  # 260 MB: not versioned, kept on Drive
+    shutil.rmtree(checkpoints, ignore_errors=True)  # a full checkpoint with its optimizer is about 0.8 GB
     logger.info(
         "%s: val %s | %d steps | %.0f s", result["model"], result["val"], result["global_step"], seconds
     )

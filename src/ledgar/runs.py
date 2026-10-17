@@ -83,7 +83,8 @@ def save_predictions(
     index = np.arange(len(y_true)) if index is None else np.asarray(index)
     arrays = {"index": index, "y_true": y_true, "y_pred": y_pred}
     if logits is not None:
-        arrays["logits"] = np.asarray(logits, dtype=np.float32)
+        logits = np.asarray(logits, dtype=np.float32)
+        arrays["logits"] = logits.astype(np.float16)  # enough for probabilities; halves the size in git
     path = run_dir / f"pred_{split}.npz"
     np.savez_compressed(path, **arrays)
     table = pd.DataFrame({"index": index, "y_true": y_true, "y_pred": y_pred})
@@ -91,7 +92,7 @@ def save_predictions(
         table["true_label"] = [label_names[i] for i in y_true]
         table["pred_label"] = [label_names[i] for i in y_pred]
     if logits is not None:
-        z = arrays["logits"] - arrays["logits"].max(axis=1, keepdims=True)
+        z = logits - logits.max(axis=1, keepdims=True)
         table["prob_max"] = (np.exp(z) / np.exp(z).sum(axis=1, keepdims=True)).max(axis=1).round(4)
     table.to_csv(run_dir / f"pred_{split}.csv", index=False)
     return path
@@ -141,7 +142,7 @@ def results_table(results_dir: str | Path | None = None, *, strict: bool = True)
                 "model": m.get("model", ""),
                 "seed": run["config"].get("seed"),
                 "trainable_params": m.get("trainable_params"),
-                "train_time_s": run["manifest"].get("duration_s"),
+                "train_time_s": _round_or_none(run["manifest"].get("duration_s")),
                 "val_macro_f1": m.get("val", {}).get("macro_f1"),
                 "test_macro_f1": m.get("test", {}).get("macro_f1"),
                 "test_accuracy": m.get("test", {}).get("accuracy"),
@@ -195,6 +196,10 @@ def make_manifest(
     if duration_s is not None:
         manifest["duration_s"] = round(float(duration_s), 1)
     return manifest
+
+
+def _round_or_none(x: float | None) -> int | None:
+    return None if x is None else round(x)
 
 
 def _git(*args: str) -> str:

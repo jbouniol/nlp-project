@@ -1,0 +1,12 @@
+{
+  "model": "tfidf",
+  "trainable_params": 17347800,
+  "val": {
+    "accuracy": 0.8794,
+    "macro_f1": 0.8264685231705821
+  },
+  "test": {
+    "accuracy": 0.8771,
+    "macro_f1": 0.829081039960299
+  }
+}

@@ -17,6 +17,37 @@ on the official held-out test set and compared with paired tests.
 
 *Generated from `results/` by `make table`.*
 
+| run | model | seed | trainable_params | train_time_s | val_macro_f1 | test_macro_f1 | test_accuracy |
+|---|---|---|---|---|---|---|---|
+| lazy | lazy | 0 | 0 | 0 | 0.0010 | 0.0011 | 0.0582 |
+| tfidf | tfidf | 0 | 17,347,800 | 139 | 0.8265 | 0.8291 | 0.8771 |
+
+## Pre-registered comparison
+
+*Written and committed before any m4 model was trained (S06 p26: "the main comparison written in the README
+before running it, then its paired test").*
+
+**Question.** Full fine-tuning of DistilBERT trains 67 M parameters; LoRA trains 0.7 M (rank-8 adapters on the
+query and value projections, plus the new head). Is the full model worth it?
+
+**Hypothesis.** On the LEDGAR test set (10 000 clauses, seed 0), full fine-tuning of `distilbert-base-uncased`
+has a higher macro-F1 than LoRA (r = 8, α = 16, `q_lin` and `v_lin`), by at most 1 point, and the difference
+is not significant.
+
+**Setting.** Same data, `max_length` 512 with length-grouped batches, 3 epochs, warmup 10 % then linear decay,
+the epoch with the best validation macro-F1 kept; each method's learning rate chosen on validation
+(full: 2e-5, 3e-5, 5e-5; LoRA: 3e-4, 5e-4, 1e-3). The test set is predicted once per model.
+
+**Tests.** McNemar's test on the per-clause correctness (continuity correction; exact binomial test if
+b + c < 25), and a paired bootstrap of the macro-F1 difference (1 000 resamples, seed 0, 95 % percentile
+interval), at α = 5 %.
+
+**Decision rule.** If the bootstrap interval contains 0 and McNemar's p ≥ 0.05, LoRA is the production
+candidate; otherwise full fine-tuning is.
+
+Secondary comparisons, same tests: the best transformer vs the TF-IDF baseline (is a transformer worth its
+cost?), the transformer vs the LSTM, and LoRA on every linear layer vs LoRA on `q_lin`, `v_lin`.
+
 ## How to reproduce
 
 ```bash

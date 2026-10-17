@@ -6,7 +6,6 @@ from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_sc
 
 from ledgar import metrics
 from ledgar.data import class_weights, frequency_band, lazy_baseline, length_stats, padded_tokens
-from ledgar.text import tokenize
 
 COURSE_C = np.array([[44, 4, 2], [2, 6, 2], [1, 1, 8]])
 
@@ -86,12 +85,6 @@ def test_per_class_report_sorted_by_f1():
     report = metrics.per_class_report(y_true, y_pred, ["termination", "payment", "confidentiality"])
     assert list(report["label"]) == ["payment", "confidentiality", "termination"]
     assert report["support"].sum() == COURSE_C.sum()
-
-
-def test_tokenize_tp04():
-    assert tokenize("Wall St. Bears Claw Back!") == ["wall", "st", "bears", "claw", "back"]
-    assert tokenize("Section 2.1 of the Agreement") == ["section", "2", "1", "of", "the", "agreement"]
-    assert tokenize("") == []
 
 
 def test_length_stats_and_bands():

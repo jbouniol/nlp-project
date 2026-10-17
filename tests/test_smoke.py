@@ -1,10 +1,13 @@
 """End-to-end smoke run under FAST_RUN: grows with each milestone, must stay under a few minutes on CPU."""
 
+import subprocess
+import sys
+
 import numpy as np
 import pytest
 
 from ledgar import data, metrics, runs
-from ledgar.config import Config
+from ledgar.config import ROOT, Config
 
 
 def test_config_fast_run_overrides(monkeypatch):
@@ -58,3 +61,71 @@ def test_fast_run_data_and_floor(tmp_path):
         runs.save_predictions(tmp_path / "lazy", split, y, y_pred)
     runs.save_run(tmp_path / "lazy", cfg, {"model": "lazy", "val": {}, "test": {}})
     assert runs.missing_files(tmp_path / "lazy") == []
+
+
+@pytest.mark.slow
+def test_fast_run_tfidf_script(tmp_path):
+    """m1 from the command line: scripts/train.py writes a complete run directory."""
+    cmd = [
+        sys.executable,
+        str(ROOT / "scripts" / "train.py"),
+        "--model",
+        "tfidf",
+        "--fast-run",
+        "--device",
+        "cpu",
+    ]
+    subprocess.run([*cmd, "--out-dir", str(tmp_path)], check=True, cwd=ROOT)
+    assert runs.missing_files(tmp_path / "tfidf") == []
+    m = runs.load_run(tmp_path / "tfidf")["metrics"]
+    assert m["val"]["macro_f1"] > 0.3 and m["trainable_params"] > 0, (
+        "far above the lazy floor even on 30 clauses per type"
+    )
+
+
+@pytest.mark.slow
+def test_fast_run_lstm_script(tmp_path):
+    """m3 from the command line: a final run (val + test + weights) and a search run (validation only)."""
+    cmd = [
+        sys.executable,
+        str(ROOT / "scripts" / "train.py"),
+        "--model",
+        "lstm",
+        "--fast-run",
+        "--device",
+        "cpu",
+    ]
+    subprocess.run([*cmd, "--out-dir", str(tmp_path)], check=True, cwd=ROOT)
+    assert (
+        runs.missing_files(tmp_path / "lstm_seed0") == [] and (tmp_path / "lstm_seed0" / "model.pt").exists()
+    )
+    subprocess.run([*cmd, "--out-dir", str(tmp_path), "--search", "--bidirectional"], check=True, cwd=ROOT)
+    assert (tmp_path / "search" / "lstm_seed0" / "pred_val.npz").exists()
+    assert not (tmp_path / "search" / "lstm_seed0" / "pred_test.npz").exists(), (
+        "a search run never reads test"
+    )
+
+
+@pytest.mark.slow
+def test_fast_run_lora_script(tmp_path):
+    """m4 from the command line (LoRA on CPU): complete run, adapter saved, predictions in dataset order."""
+    cmd = [
+        sys.executable,
+        str(ROOT / "scripts" / "train.py"),
+        "--model",
+        "lora",
+        "--fast-run",
+        "--device",
+        "cpu",
+    ]
+    subprocess.run(
+        [*cmd, "--out-dir", str(tmp_path), "--checkpoint-dir", str(tmp_path / "ckpt")], check=True, cwd=ROOT
+    )
+    run_dir = tmp_path / "lora_seed0"
+    assert runs.missing_files(run_dir) == [] and (run_dir / "adapter" / "adapter_model.safetensors").exists()
+    m = runs.load_run(run_dir)["metrics"]
+    assert abs(m["initial_loss"] - np.log(100)) < 0.5, "random head: initial loss close to ln(100)"
+    assert m["trainable_params"] == 147_456 + 768 * 768 + 768 + 768 * 100 + 100, "LoRA q/v + the whole head"
+    pred = runs.load_predictions(run_dir, "val")
+    assert m["val"]["accuracy"] == pytest.approx(np.mean(pred["y_true"] == pred["y_pred"]))
+    assert m["val"]["accuracy"] > 0.05, "above chance: the predictions line up with the clauses"

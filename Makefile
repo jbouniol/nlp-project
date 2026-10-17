@@ -3,7 +3,7 @@ SEED ?= 0
 NB_OUT ?= /tmp/ledgar_nb
 CODE := $(wildcard src tests scripts notebooks)  # only the folders that exist (git keeps no empty folder)
 
-.PHONY: setup lint format test smoke notebooks table
+.PHONY: setup lint format test smoke notebooks table m1 glove
 
 setup:            ## create .venv and install the package with its pinned dependencies
 	uv venv --python 3.14 .venv || python3 -m venv .venv
@@ -30,6 +30,14 @@ notebooks:        ## execute every notebook under FAST_RUN into $(NB_OUT) (commi
 		[ -e "$$nb" ] || continue; \
 		FAST_RUN=1 $(PY) -m jupyter nbconvert --to notebook --execute "$$nb" --output-dir $(NB_OUT) || exit 1; \
 	done
+
+m1:               ## TF-IDF + logistic regression with the configuration of Config -> results/tfidf
+	$(PY) scripts/train.py --model tfidf
+
+glove:            ## GloVe 50-d (66 MB, 400 000 words) for the LSTM, from the gensim-data release on GitHub
+	mkdir -p data
+	curl -L --fail -o data/glove-wiki-gigaword-50.gz \
+		https://github.com/RaRe-Technologies/gensim-data/releases/download/glove-wiki-gigaword-50/glove-wiki-gigaword-50.gz
 
 table:            ## results/ -> reports/results_table.md
 	$(PY) scripts/make_results_table.py

@@ -27,6 +27,8 @@ FAST_OVERRIDES: dict[str, Any] = {
     "n_boot": 200,
     "out_dir": ".fast/results",  # never overwrite the committed results and figures
     "reports_dir": ".fast/reports",
+    "checkpoint_dir": ".fast/checkpoints",
+    "models_dir": ".fast/models",
 }
 
 
@@ -54,13 +56,17 @@ class Config:
     # m1: TF-IDF + logistic regression
     tfidf_ngram_max: int = 2
     tfidf_min_df: int = 2
-    logreg_c: float = 1.0
+    logreg_c: float = 30.0  # chosen on validation (02_baseline_tfidf, docs/DECISIONS.md)
     class_weight: str | None = None
+    logreg_solver: str = "lbfgs"  # saga is faster without weights but does not converge with balanced ones
+    logreg_max_iter: int = 1000
 
     # m3: LSTM
     min_freq: int = 2
     max_words: int = 476  # p99 of training clause length in words (01_explore_ledgar)
-    emb_dim: int = 100
+    emb_dim: int = 100  # 50 with GloVe
+    glove: bool = False  # initialise the embedding from GloVe 50-d (S04 p15)
+    lstm_class_weight: str | None = None  # None, "balanced" or "sqrt" (data.class_weights)
     hidden: int = 128
     bidirectional: bool = False
     dropout: float = 0.3
@@ -74,6 +80,7 @@ class Config:
     max_length: int = 512  # 98.2 % of training clauses whole (01_explore_ledgar, docs/DECISIONS.md)
     group_by_length: bool = True  # Trainer sampler: batches of similar lengths, little padding
     batch_size: int = 32
+    grad_accum: int = 1  # 2 with batch 16 if a T4 runs out of memory at max_length 512
     eval_batch_size: int = 64
     epochs: int = 3
     lr_full: float = 3e-5
@@ -92,6 +99,8 @@ class Config:
     data_dir: str = "data"
     out_dir: str = "results"
     reports_dir: str = "reports"
+    checkpoint_dir: str = "checkpoints"  # Trainer checkpoints, not versioned (on Colab: a Drive folder)
+    models_dir: str = "models"  # full fine-tuned weights, not versioned (on Colab: a Drive folder)
     extra: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -114,6 +123,7 @@ class Config:
         parser = argparse.ArgumentParser(description="Train or evaluate one LEDGAR classifier run.")
         parser.add_argument("--model", choices=["lazy", "tfidf", "lstm", "bert", "lora"], default=None)
         parser.add_argument("--name", default=None, help="run directory name under out_dir")
+        parser.add_argument("--search", action="store_true", help="validation only, under out_dir/search/")
         for f in fields(cls):
             if f.name == "extra":
                 continue

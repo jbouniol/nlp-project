@@ -12,14 +12,14 @@ dist/
 .ipynb_checkpoints/
 
 # Data, caches and model weights (full checkpoints live on Drive / HF Hub, not in git)
-data/
+/data/
 .fast/
-models/
-checkpoints/
+/models/
+/checkpoints/
 results/**/checkpoint-*/
 results/**/*.safetensors
 results/**/*.bin
-!results/**/adapter_model.safetensors
+!results/**/adapter/adapter_model.safetensors
 
 # OS / editors
 .DS_Store

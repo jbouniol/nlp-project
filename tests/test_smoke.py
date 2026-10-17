@@ -21,8 +21,20 @@ def test_config_fast_run_overrides(monkeypatch):
 
 
 def test_config_from_args():
-    cfg, args = Config.from_args(["--model", "lora", "--lr-lora", "1e-3", "--lora-targets", "q_lin", "k_lin"])
-    assert args.model == "lora" and cfg.lr_lora == 1e-3
+    cfg, args = Config.from_args(
+        [
+            "--model",
+            "lora",
+            "--lr-lora",
+            "1e-3",
+            "--lora-targets",
+            "q_lin",
+            "k_lin",
+            "--lstm-class-weight",
+            "none",
+        ]
+    )
+    assert args.model == "lora" and cfg.lr_lora == 1e-3 and cfg.lstm_class_weight is None
     assert cfg.lora_targets == ("q_lin", "k_lin")
 
 
@@ -97,9 +109,11 @@ def test_fast_run_lstm_script(tmp_path):
     ]
     subprocess.run([*cmd, "--out-dir", str(tmp_path)], check=True, cwd=ROOT)
     assert (
-        runs.missing_files(tmp_path / "lstm_seed0") == [] and (tmp_path / "lstm_seed0" / "model.pt").exists()
+        runs.missing_files(tmp_path / "lstm_seed0") == []
+        and (tmp_path / "lstm_seed0" / "model.pt").exists()
+        and (tmp_path / "lstm_seed0" / "vocab.json").exists()
     )
-    subprocess.run([*cmd, "--out-dir", str(tmp_path), "--search", "--bidirectional"], check=True, cwd=ROOT)
+    subprocess.run([*cmd, "--out-dir", str(tmp_path), "--search", "--no-glove"], check=True, cwd=ROOT)
     assert (tmp_path / "search" / "lstm_seed0" / "pred_val.npz").exists()
     assert not (tmp_path / "search" / "lstm_seed0" / "pred_test.npz").exists(), (
         "a search run never reads test"

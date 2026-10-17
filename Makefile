@@ -21,6 +21,7 @@ test:             ## unit tests (no download)
 	$(PY) -m pytest -m "not slow"
 
 smoke:            ## the whole pipeline on a per-class subset (FAST_RUN), then every notebook top to bottom
+	test -f data/glove-wiki-gigaword-50.gz || $(MAKE) glove
 	FAST_RUN=1 $(PY) -m pytest tests/test_smoke.py
 	$(MAKE) notebooks
 

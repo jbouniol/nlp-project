@@ -19,6 +19,18 @@ import pandas as pd
 
 from ledgar.config import ROOT, Config
 
+# Starting point of the search (TP04 defaults, 8 epochs), before Config was updated to the chosen model.
+START: dict[str, object] = {
+    "emb_dim": 100,
+    "glove": False,
+    "lstm_class_weight": None,
+    "hidden": 128,
+    "bidirectional": False,
+    "dropout": 0.3,
+    "lstm_lr": 2e-3,
+    "lstm_epochs": 8,
+}
+
 STEPS = [
     ("init", "glove", {"glove": True, "emb_dim": 50}),
     ("direction", "bilstm", {"bidirectional": True}),
@@ -38,9 +50,10 @@ def flags(overrides: dict) -> list[str]:
 
 
 def run(name: str, overrides: dict, extra: list[str]) -> dict:
-    cmd = [sys.executable, str(ROOT / "scripts" / "train.py"), "--model", "lstm", "--search", "--name", name]
-    subprocess.run([*cmd, *flags(overrides), *extra], check=True, cwd=ROOT)
     cfg = Config.from_env()
+    base = {**START, **({"lstm_epochs": 1} if cfg.fast_run or "--fast-run" in extra else {})}
+    cmd = [sys.executable, str(ROOT / "scripts" / "train.py"), "--model", "lstm", "--search", "--name", name]
+    subprocess.run([*cmd, *flags({**base, **overrides}), *extra], check=True, cwd=ROOT)
     out_dir = (
         cfg.path(cfg.out_dir) if "--out-dir" not in extra else ROOT / extra[extra.index("--out-dir") + 1]
     )

@@ -131,16 +131,17 @@ class Config:
             opt = "--" + f.name.replace("_", "-")
             default = f.default
             if isinstance(default, bool):
-                parser.add_argument(opt, action=argparse.BooleanOptionalAction, default=None)
+                parser.add_argument(opt, action=argparse.BooleanOptionalAction, default=argparse.SUPPRESS)
             elif isinstance(default, tuple):
-                parser.add_argument(opt, nargs="+", default=None)
+                parser.add_argument(opt, nargs="+", default=argparse.SUPPRESS)
             else:
-                parser.add_argument(opt, type=_parse_scalar, default=None)
+                parser.add_argument(opt, type=_parse_scalar, default=argparse.SUPPRESS)
         args = parser.parse_args(argv)
+        passed = vars(args)
         overrides = {
-            f.name: tuple(v) if isinstance(v, list) else v
+            f.name: tuple(passed[f.name]) if isinstance(passed[f.name], list) else passed[f.name]
             for f in fields(cls)
-            if (v := getattr(args, f.name, None)) is not None
+            if f.name in passed
         }
         return cls.from_env(**overrides), args
 

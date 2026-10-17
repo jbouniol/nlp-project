@@ -1,14 +1,16 @@
 """LSTM classifier against TP04 Ex 8-12 and S04 p14."""
 
 import gzip
+import json
 import math
 
 import numpy as np
+import pandas as pd
 import pytest
 import torch
 from torch import nn
 
-from ledgar.config import Config
+from ledgar.config import ROOT, Config
 from ledgar.models.lstm import LSTMClassifier, count_params, last_true_state, load_glove
 from ledgar.text import ClauseDataset
 from ledgar.train_lstm import LengthGroupedBatchSampler, fit, make_loaders, predict, train_one_epoch
@@ -112,3 +114,16 @@ def test_length_grouped_batches_cover_everything_once_per_epoch():
     assert first != second, "reshuffled at every epoch"
     spread = np.mean([np.ptp(lengths[b]) for b in first])
     assert spread < np.ptp(lengths) / 3, "clauses of a batch have similar lengths"
+
+
+def test_config_holds_the_lstm_configuration_chosen_on_validation():
+    """Config defaults for m3 must match the kept steps of results/search/lstm_search.csv."""
+    path = ROOT / "results" / "search" / "lstm_search.csv"
+    if not path.exists():
+        pytest.skip("scripts/search_lstm.py has not been run yet")
+    table = pd.read_csv(path)
+    chosen = {}
+    for change in table.loc[table["kept"] & (table["change"] != "-"), "change"]:
+        chosen.update(json.loads(change))
+    cfg = Config()
+    assert {k: getattr(cfg, k) for k in chosen} == chosen

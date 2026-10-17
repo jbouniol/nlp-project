@@ -25,3 +25,6 @@ results/**/*.bin
 .DS_Store
 .vscode/
 .idea/
+
+# Search runs keep their config, metrics and history; their predictions stay local
+results/search/**/pred_*

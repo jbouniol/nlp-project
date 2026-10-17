@@ -7,7 +7,8 @@ from collections.abc import Sequence
 import torch
 from torch import nn
 
-HEAD = ("pre_classifier", "classifier")  # DistilBERT's new head: trained fully, it did not exist before (S06 p20)
+# DistilBERT's new head: trained fully, it did not exist before (S06 p20)
+HEAD = ("pre_classifier", "classifier")
 
 
 class LoRALinear(nn.Module):
@@ -64,7 +65,9 @@ def lora_param_count(n_layers: int, d_in: int, d_out: int, r: int) -> int:
     return n_layers * r * (d_in + d_out)
 
 
-def make_peft_model(model: nn.Module, r: int, alpha: int, targets: Sequence[str], dropout: float = 0.0) -> nn.Module:
+def make_peft_model(
+    model: nn.Module, r: int, alpha: int, targets: Sequence[str], dropout: float = 0.0
+) -> nn.Module:
     """The same adapters with `peft` (TP06 Ex 23): task SEQ_CLS keeps the head fully trainable."""
     from peft import LoraConfig, get_peft_model
 

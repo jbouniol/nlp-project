@@ -61,7 +61,7 @@ def test_device_profile_keeps_the_effective_batch_and_explicit_values_win():
         p = device_profile(device)
         assert p["precision"] == "fp32" and p["batch_size"] * p["grad_accum"] == 32
     cfg = Config.from_env(device="cpu")
-    assert (cfg.precision, cfg.batch_size, cfg.grad_accum, cfg.eval_batch_size) == ("fp32", 8, 4, 32)
+    assert (cfg.precision, cfg.batch_size, cfg.grad_accum, cfg.eval_batch_size) == ("fp32", 32, 1, 64)
     cfg = Config.from_env(device="cpu", batch_size=4, grad_accum=8)
     assert (cfg.batch_size, cfg.grad_accum) == (4, 8), "an explicit value wins over the device profile"
 

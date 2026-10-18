@@ -191,7 +191,9 @@ def device_profile(device: str) -> dict[str, Any]:
     The m4 learning rates are searched at an effective batch of 32: keeping it fixed keeps the runs
     comparable whatever the GPU. CUDA: bf16 (with TF32, see `train_bert.make_args`) where the GPU has
     native bf16 (A100, L4, H100), fp16 otherwise (T4, V100); 32 x 1 from 14 GB on (a T4 has 16 GB),
-    16 x 2 below. MPS and CPU: fp32, 8 x 4. Evaluation keeps no activations for the backward pass, so its
+    16 x 2 below. MPS: fp32, 8 x 4 (a laptop's shared memory). CPU: fp32 and the previous values, 32 x 1
+    and evaluation 64: it only runs the FAST_RUN smoke test, whose exact reproduction check in
+    scripts/predict_test.py depends on them. Evaluation keeps no activations for the backward pass, so its
     batch only follows memory. The thresholds are not measured.
     """
     if device == "cuda":
@@ -204,7 +206,9 @@ def device_profile(device: str) -> dict[str, Any]:
         if memory_gb >= 14:
             return {"precision": precision, "batch_size": 32, "grad_accum": 1, "eval_batch_size": 64}
         return {"precision": precision, "batch_size": 16, "grad_accum": 2, "eval_batch_size": 64}
-    return {"precision": "fp32", "batch_size": 8, "grad_accum": 4, "eval_batch_size": 32}
+    if device == "mps":
+        return {"precision": "fp32", "batch_size": 8, "grad_accum": 4, "eval_batch_size": 32}
+    return {"precision": "fp32", "batch_size": 32, "grad_accum": 1, "eval_batch_size": 64}
 
 
 def set_seed(seed: int) -> None:

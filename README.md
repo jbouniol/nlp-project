@@ -60,7 +60,9 @@ make smoke      # the whole pipeline on a per-class subset (FAST_RUN=1), then ev
 ```
 
 GPU runs (m4) on Colab: open [`colab/run_m4.ipynb`](https://colab.research.google.com/github/jbouniol/nlp-project/blob/main/colab/run_m4.ipynb),
-the run cards of every DistilBERT and LoRA run, in order. From the command line:
+the run cards of every DistilBERT and LoRA run, in order.
+The 10-epoch follow-up has its own runner,
+[`colab/run_m4_10epochs.ipynb`](https://colab.research.google.com/github/jbouniol/nlp-project/blob/main/colab/run_m4_10epochs.ipynb). From the command line:
 
 ```bash
 python scripts/train.py --model tfidf                                  # m1 (= make m1)

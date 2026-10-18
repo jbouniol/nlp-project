@@ -2,12 +2,14 @@
 
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
+import torch
 
 from ledgar import data, metrics, runs
-from ledgar.config import ROOT, Config
+from ledgar.config import ROOT, Config, device_profile
 
 
 def test_config_fast_run_overrides(monkeypatch):
@@ -36,6 +38,32 @@ def test_config_from_args():
     )
     assert args.model == "lora" and cfg.lr_lora == 1e-3 and cfg.lstm_class_weight is None
     assert cfg.lora_targets == ("q_lin", "k_lin")
+
+
+@pytest.mark.parametrize(
+    ("bf16", "memory_gb", "expected"),
+    [
+        (True, 80, ("bf16", 32, 1, 256)),  # H100 / A100 80 GB
+        (False, 16, ("fp16", 32, 1, 64)),  # T4
+        (False, 12, ("fp16", 16, 2, 64)),
+    ],
+)
+def test_device_profile_follows_the_gpu(monkeypatch, bf16, memory_gb, expected):
+    monkeypatch.setattr(torch.cuda, "is_bf16_supported", lambda including_emulation=True: bf16)
+    properties = SimpleNamespace(total_memory=memory_gb * 1e9)
+    monkeypatch.setattr(torch.cuda, "get_device_properties", lambda i: properties)
+    p = device_profile("cuda")
+    assert (p["precision"], p["batch_size"], p["grad_accum"], p["eval_batch_size"]) == expected
+
+
+def test_device_profile_keeps_the_effective_batch_and_explicit_values_win():
+    for device in ("cpu", "mps"):
+        p = device_profile(device)
+        assert p["precision"] == "fp32" and p["batch_size"] * p["grad_accum"] == 32
+    cfg = Config.from_env(device="cpu")
+    assert (cfg.precision, cfg.batch_size, cfg.grad_accum, cfg.eval_batch_size) == ("fp32", 8, 4, 32)
+    cfg = Config.from_env(device="cpu", batch_size=4, grad_accum=8)
+    assert (cfg.batch_size, cfg.grad_accum) == (4, 8), "an explicit value wins over the device profile"
 
 
 def test_save_run_roundtrip(tmp_path):

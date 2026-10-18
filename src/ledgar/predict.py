@@ -10,6 +10,7 @@ clause is read with the model's own tokenizer and the training `max_length`.
 
 from __future__ import annotations
 
+import contextlib
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass, fields
@@ -19,7 +20,9 @@ import numpy as np
 import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, PreTrainedTokenizerBase
 
-from ledgar.config import Config, resolve_device
+from ledgar.config import Config, device_profile, resolve_device
+
+AUTOCAST_DTYPES = {"bf16": torch.bfloat16, "fp16": torch.float16}
 
 
 @dataclass
@@ -29,10 +32,20 @@ class Classifier:
     label_names: list[str]
     max_length: int
     device: str
+    precision: str = "fp32"
+
+    def autocast(self) -> contextlib.AbstractContextManager:
+        """The mixed precision of the run on CUDA: the Trainer also evaluates under autocast, so the reloaded
+        weights give back the saved validation predictions (the gate of scripts/predict_test.py)."""
+        dtype = AUTOCAST_DTYPES.get(self.precision)
+        if self.device != "cuda" or dtype is None:
+            return contextlib.nullcontext()
+        return torch.autocast("cuda", dtype=dtype)
 
     @torch.no_grad()
-    def logits(self, texts: Sequence[str], batch_size: int = 64) -> np.ndarray:
-        """Logits (N, 100), in the order of `texts`."""
+    def logits(self, texts: Sequence[str], batch_size: int | None = None) -> np.ndarray:
+        """Logits (N, 100), in the order of `texts`; batches of the device's evaluation size by default."""
+        batch_size = batch_size or device_profile(self.device)["eval_batch_size"]
         self.model.eval()
         out = []
         for start in range(0, len(texts), batch_size):
@@ -43,10 +56,11 @@ class Classifier:
                 padding=True,
                 return_tensors="pt",
             ).to(self.device)
-            out.append(self.model(**batch).logits.float().cpu().numpy())
+            with self.autocast():
+                out.append(self.model(**batch).logits.float().cpu().numpy())
         return np.concatenate(out) if out else np.zeros((0, len(self.label_names)), dtype=np.float32)
 
-    def predict(self, texts: Sequence[str], batch_size: int = 64) -> tuple[np.ndarray, np.ndarray]:
+    def predict(self, texts: Sequence[str], batch_size: int | None = None) -> tuple[np.ndarray, np.ndarray]:
         """(label ids (N,), probabilities (N, 100))."""
         z = self.logits(texts, batch_size)
         p = np.exp(z - z.max(axis=1, keepdims=True))
@@ -92,4 +106,4 @@ def load_classifier(
         raise ValueError(f"{run_dir.name} is a {kind!r} run: only bert and lora runs can be loaded")
     device = resolve_device(device)
     tokenizer = AutoTokenizer.from_pretrained(cfg.model_name)
-    return Classifier(model.to(device), tokenizer, names, cfg.max_length, device)
+    return Classifier(model.to(device), tokenizer, names, cfg.max_length, device, cfg.precision)

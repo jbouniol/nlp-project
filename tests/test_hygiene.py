@@ -8,7 +8,8 @@ TEST_SPLIT_READS = ('ledgar["test"]', "ledgar['test']")
 
 
 def test_package_never_reads_the_test_split():
-    for path in (ROOT / "src").rglob("*.py"):
+    paths = list((ROOT / "src").rglob("*.py")) + list((ROOT / "scripts").rglob("*.py"))
+    for path in paths:
         text = path.read_text()
         assert not any(s in text for s in TEST_SPLIT_READS), f"{path.name} reads the test split"
 

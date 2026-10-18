@@ -9,9 +9,9 @@ on the official held-out test set and compared with paired tests.
 |---|---|---|
 | m1 | TF-IDF + logistic regression | `notebooks/02_baseline_tfidf.ipynb` |
 | m3 | LSTM / BiLSTM (+ GloVe) | `notebooks/03_lstm_classifier.ipynb` |
-| m4 | DistilBERT, full fine-tuning and LoRA | `notebooks/04_finetune_distilbert.ipynb`, `notebooks/05_lora.ipynb` |
+| m4 | DistilBERT, full fine-tuning and LoRA | `colab/run_m4.ipynb`, `scripts/train_bert.py` |
 
-> Work in progress: results, the pre-registered comparison and the model card are added milestone by milestone.
+> Work in progress: results, the pre-registered comparison are added milestone by milestone.
 
 ## Results
 
@@ -79,7 +79,7 @@ notebooks/      one notebook per milestone, readable top to bottom (outputs comm
 scripts/        the same pipeline without a notebook (train.py, search_lstm.py, predict_test.py, ...)
 colab/          run cards for the GPU runs
 results/        one directory per run: config, metrics, predictions, log, manifest
-reports/        figures, results table, model card
+reports/        figures, results table
 docs/           DECISIONS.md, the log of design choices
 tests/          unit tests and the FAST_RUN smoke run
 ```

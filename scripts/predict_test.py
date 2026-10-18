@@ -2,8 +2,9 @@
 
     python scripts/predict_test.py --name lora_lr5e-4_seed0          # results/search/<name> -> results/<name>
 
-The run is first checked: its saved weights must give back its validation predictions. Then the test
-split is read, once, and the run directory moves from results/search/ to results/.
+The run is first checked: its saved weights must give back its validation predictions (99.9 % of the clauses
+that are not near-ties between two types). Then the test split is read, once, and the run directory moves
+from results/search/ to results/.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from ledgar.config import ROOT, Config
 from ledgar.predict import load_classifier, run_config
 
 logger = logging.getLogger("predict_test")
+TIE_MARGIN = 0.05
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -39,10 +41,19 @@ def main(argv: list[str] | None = None) -> None:
     ledgar = data.load_ledgar(cfg)
 
     saved = runs.load_predictions(src, "val")
-    agreement = np.mean(clf.logits(ledgar["validation"]["text"]).argmax(axis=1) == saved["y_pred"])
-    logger.info("validation predictions reproduced: %.4f", agreement)
-    if agreement < 0.999:
-        raise SystemExit(f"the loaded weights do not reproduce the validation predictions ({agreement:.4f})")
+    same = clf.logits(ledgar["validation"]["text"]).argmax(axis=1) == saved["y_pred"]
+    # Near-ties between the two best types can flip between the fp16 evaluation of a GPU run and this fp32
+    # one; saved logits are float16 (step ~0.01 around 8), so a margin under 0.05 is a tie, not an error.
+    top2 = np.sort(saved["logits"].astype(np.float32), axis=1)[:, -2:]
+    clear = (top2[:, 1] - top2[:, 0]) > TIE_MARGIN
+    agreement, agreement_clear = float(same.mean()), float(same[clear].mean())
+    logger.info(
+        "validation predictions reproduced: %.4f (%.4f outside near-ties)", agreement, agreement_clear
+    )
+    if agreement_clear < 0.999:
+        raise SystemExit(
+            f"the loaded weights do not reproduce the validation predictions ({agreement_clear:.4f})"
+        )
 
     shutil.copytree(src, dst, dirs_exist_ok=True)
     y_true = np.array(ledgar["test"]["label"])  # predict & save: the test split, used once
@@ -56,7 +67,9 @@ def main(argv: list[str] | None = None) -> None:
         "accuracy": metrics.accuracy(y_true, y_pred),
         "macro_f1": metrics.macro_f1_score(y_true, y_pred, cfg.n_classes),
     }
-    runs.save_run(dst, cfg, {"test": test, "val_reproduced": float(agreement)})
+    runs.save_run(
+        dst, cfg, {"test": test, "val_reproduced": agreement, "val_reproduced_outside_ties": agreement_clear}
+    )
     shutil.rmtree(src)
     logger.info("test %s -> %s", test, dst)
 

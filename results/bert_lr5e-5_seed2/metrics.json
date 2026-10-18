@@ -1,0 +1,16 @@
+{
+  "model": "bert",
+  "trainable_params": 67030372,
+  "total_params": 67030372,
+  "memory_gb_estimate": 1.072485952,
+  "initial_loss": 4.583931922912598,
+  "global_step": 5625,
+  "val": {
+    "accuracy": 0.8636,
+    "macro_f1": 0.7905247466149589
+  },
+  "test": {
+    "accuracy": 0.8675,
+    "macro_f1": 0.7864250123787975
+  }
+}

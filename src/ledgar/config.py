@@ -7,7 +7,7 @@ import dataclasses
 import logging
 import os
 import random
-from dataclasses import dataclass, field, fields, replace
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
@@ -80,8 +80,10 @@ class Config:
     model_name: str = "distilbert-base-uncased"
     max_length: int = 512  # 98.2 % of training clauses whole (01_explore_ledgar, docs/DECISIONS.md)
     group_by_length: bool = True  # Trainer sampler: batches of similar lengths, little padding
+    # Set per device by `device_profile` (from_env) unless given explicitly; batch_size * grad_accum = 32
+    precision: str = "fp32"  # "fp32", "fp16" or "bf16" (mixed precision, CUDA)
     batch_size: int = 32
-    grad_accum: int = 1  # 2 with batch 16 if a T4 runs out of memory at max_length 512
+    grad_accum: int = 1
     eval_batch_size: int = 64
     epochs: int = 3
     lr_full: float = 3e-5
@@ -106,7 +108,8 @@ class Config:
 
     @classmethod
     def from_env(cls, **overrides: Any) -> Config:
-        """Defaults, then FAST_RUN values if FAST_RUN=1, then SEED / DEVICE, then overrides."""
+        """Defaults, then the device profile, then FAST_RUN values if FAST_RUN=1, then SEED / DEVICE,
+        then overrides: an explicit precision or batch size wins over the device profile."""
         values: dict[str, Any] = {"fast_run": os.environ.get("FAST_RUN", "0") == "1"}
         if "SEED" in os.environ:
             values["seed"] = int(os.environ["SEED"])
@@ -115,8 +118,8 @@ class Config:
         values.update(overrides)
         if values.get("fast_run"):
             values = {**FAST_OVERRIDES, **values}
-        cfg = cls(**values)
-        return replace(cfg, device=resolve_device(cfg.device))
+        device = resolve_device(values.get("device", "auto"))
+        return cls(**{**device_profile(device), **values, "device": device})
 
     @classmethod
     def from_args(cls, argv: list[str] | None = None) -> tuple[Config, argparse.Namespace]:
@@ -154,7 +157,8 @@ class Config:
         return ROOT.joinpath(*parts)
 
     def __str__(self) -> str:
-        shown = ["fast_run", "seed", "device", "model_name", "max_length", "max_words", "epochs"]
+        shown = ["fast_run", "seed", "device", "precision", "batch_size", "grad_accum", "model_name"]
+        shown += ["max_length", "max_words", "epochs"]
         return " | ".join(f"{k}={getattr(self, k)}" for k in shown)
 
 
@@ -179,6 +183,28 @@ def resolve_device(device: str = "auto") -> str:
     if torch.backends.mps.is_available():
         return "mps"
     return "cpu"
+
+
+def device_profile(device: str) -> dict[str, Any]:
+    """Precision and batch sizes of the m4 runs on `device`, with batch_size * grad_accum = 32 everywhere.
+
+    The m4 learning rates are searched at an effective batch of 32: keeping it fixed keeps the runs
+    comparable whatever the GPU. CUDA: bf16 (with TF32, see `train_bert.make_args`) where the GPU has
+    native bf16 (A100, L4, H100), fp16 otherwise (T4, V100); 32 x 1 from 14 GB on (a T4 has 16 GB),
+    16 x 2 below. MPS and CPU: fp32, 8 x 4. Evaluation keeps no activations for the backward pass, so its
+    batch only follows memory. The thresholds are not measured.
+    """
+    if device == "cuda":
+        import torch
+
+        precision = "bf16" if torch.cuda.is_bf16_supported(including_emulation=False) else "fp16"
+        memory_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
+        if memory_gb >= 40:
+            return {"precision": precision, "batch_size": 32, "grad_accum": 1, "eval_batch_size": 256}
+        if memory_gb >= 14:
+            return {"precision": precision, "batch_size": 32, "grad_accum": 1, "eval_batch_size": 64}
+        return {"precision": precision, "batch_size": 16, "grad_accum": 2, "eval_batch_size": 64}
+    return {"precision": "fp32", "batch_size": 8, "grad_accum": 4, "eval_batch_size": 32}
 
 
 def set_seed(seed: int) -> None:

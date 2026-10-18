@@ -54,7 +54,7 @@ def make_args(cfg: Config, output_dir: str | Path, lr: float) -> TrainingArgumen
 
     AdamW, weight decay 0.01, linear warmup over 10 % of the steps then linear decay, gradient clipping at 1,
     evaluation and checkpoint at each epoch, the checkpoint with the best validation macro-F1 reloaded at the
-    end, batches of similar lengths, fp16 on CUDA only.
+    end, batches of similar lengths, mixed precision and batch sizes of the device (`config.device_profile`).
     """
     return TrainingArguments(
         output_dir=str(output_dir),
@@ -74,7 +74,9 @@ def make_args(cfg: Config, output_dir: str | Path, lr: float) -> TrainingArgumen
         metric_for_best_model="macro_f1",
         greater_is_better=True,
         train_sampling_strategy="group_by_length" if cfg.group_by_length else "random",
-        fp16=cfg.device == "cuda",
+        fp16=cfg.precision == "fp16",
+        bf16=cfg.precision == "bf16",
+        tf32=True if cfg.precision == "bf16" else None,  # bf16 GPUs (Ampere and later) all have TF32
         use_cpu=cfg.device == "cpu",
         logging_steps=50,
         report_to="none",

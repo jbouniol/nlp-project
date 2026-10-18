@@ -1,7 +1,7 @@
 """Classification metrics written from the confusion matrix (S01 p13-14), checked against scikit-learn.
 
-Convention: macro-F1 is the mean of F1_k over the classes that have at least one true or predicted example in the
-evaluated set, i.e. where support or predicted > 0.
+Convention: macro-F1 is the mean of F1_k over the classes that have at least one true example in the
+evaluated set (support > 0), i.e. `f1_score(y_true, y_pred, labels=np.unique(y_true), average="macro")`.
 It equals scikit-learn's default whenever every predicted class also appears in y_true (always the case
 on the LEDGAR test split, where the 100 classes are present). It matters on validation: Books has no
 validation clause, so validation macro-F1 is always a mean over the same 99 classes, whatever a model
@@ -31,11 +31,11 @@ def precision_recall(C: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 
 def f1_scores(C: np.ndarray) -> tuple[np.ndarray, float, float]:
-    """Per-class F1 = 2 C_kk / (row_k + col_k), macro-F1 (mean over classes with true or predicted examples), micro-F1."""
+    """Per-class F1 = 2 C_kk / (row_k + col_k), macro-F1 (mean over classes with support), micro-F1."""
     tp = np.diag(C).astype(float)
     denom = C.sum(axis=0) + C.sum(axis=1)
     f1 = np.divide(2 * tp, denom, out=np.zeros_like(tp), where=denom > 0)
-    present = (C.sum(axis=1) > 0) | (C.sum(axis=0) > 0)
+    present = C.sum(axis=1) > 0  # a class absent from y_true has no F1 to average (Books on validation)
     macro = float(f1[present].mean()) if present.any() else 0.0
     micro = float(tp.sum() / C.sum()) if C.sum() else 0.0
     return f1, macro, micro

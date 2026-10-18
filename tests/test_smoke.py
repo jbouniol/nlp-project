@@ -183,3 +183,17 @@ def test_fast_run_lora_search_then_predict_test(tmp_path):
     assert final["val"]["accuracy"] > 0.05 and final["test"]["accuracy"] > 0.05, (
         "predictions line up with clauses"
     )
+
+
+def test_predictions_fall_back_to_the_csv(tmp_path):
+    """pred_<split>.npz is not versioned: a fresh clone reads the same predictions from pred_<split>.csv."""
+    y_true, y_pred = np.array([3, 1, 2, 1]), np.array([3, 1, 1, 1])
+    runs.save_predictions(tmp_path, "test", y_true, y_pred, logits=np.eye(4)[y_pred], index=np.arange(10, 14))
+    (tmp_path / "pred_test.npz").unlink()
+    p = runs.load_predictions(tmp_path, "test")
+    assert (
+        (p["y_true"] == y_true).all()
+        and (p["y_pred"] == y_pred).all()
+        and (p["index"] == np.arange(10, 14)).all()
+    )
+    assert "logits" not in p

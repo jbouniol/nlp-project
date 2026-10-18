@@ -44,8 +44,11 @@ def main(argv: list[str] | None = None) -> None:
     same = clf.logits(ledgar["validation"]["text"]).argmax(axis=1) == saved["y_pred"]
     # Near-ties between the two best types can flip between the fp16 evaluation of a GPU run and this fp32
     # one; saved logits are float16 (step ~0.01 around 8), so a margin under 0.05 is a tie, not an error.
-    top2 = np.sort(saved["logits"].astype(np.float32), axis=1)[:, -2:]
-    clear = (top2[:, 1] - top2[:, 0]) > TIE_MARGIN
+    if "logits" in saved:
+        top2 = np.sort(saved["logits"].astype(np.float32), axis=1)[:, -2:]
+        clear = (top2[:, 1] - top2[:, 0]) > TIE_MARGIN
+    else:  # no saved logits (pred_val.npz is not versioned): every clause counts
+        clear = np.ones_like(same)
     agreement, agreement_clear = float(same.mean()), float(same[clear].mean())
     logger.info(
         "validation predictions reproduced: %.4f (%.4f outside near-ties)", agreement, agreement_clear

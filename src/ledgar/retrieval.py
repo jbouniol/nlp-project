@@ -3,6 +3,7 @@ classifier of part 1, the evaluations and the geometry diagnostics (docs/DECISIO
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -121,7 +122,8 @@ def _classifier_encoder(spec: EncoderSpec, cfg: Config) -> Encoder:
     """relu(pre_classifier(h_CLS)) of a fine-tuned DistilBERT: the features the classification head reads."""
     from ledgar.predict import load_classifier
 
-    clf = load_classifier(cfg.path(cfg.out_dir, spec.model), device=cfg.device)
+    run_dir = cfg.path(cfg.out_dir, spec.model)
+    clf = load_classifier(run_dir, device=cfg.device, models_dir=cfg.path(cfg.models_dir))
     if not hasattr(clf.model, "distilbert"):
         raise ValueError(f"{spec.model} is not a DistilBERT run: no `distilbert` body to read features from")
 
@@ -146,39 +148,42 @@ def _classifier_encoder(spec: EncoderSpec, cfg: Config) -> Encoder:
     return Encoder(spec, encode, clf.max_length, clf.tokenizer)
 
 
+def cached_array(
+    folder: str | Path, name: str, meta: dict[str, Any], compute: Callable[[], np.ndarray]
+) -> np.ndarray:
+    """<folder>/<name>.npy, reused only when every key of `meta` matches the saved <name>.json."""
+    folder = Path(folder)
+    path, meta_path = folder / f"{name}.npy", folder / f"{name}.json"
+    if path.exists() and meta_path.exists():
+        saved = json.loads(meta_path.read_text())
+        if all(saved.get(k) == v for k, v in meta.items()):
+            logger.info("%s read from %s", name, path)
+            return np.load(path)
+    start = time.perf_counter()
+    arr = compute()
+    folder.mkdir(parents=True, exist_ok=True)
+    np.save(path, arr)
+    seconds = round(time.perf_counter() - start, 1)
+    meta_path.write_text(json.dumps({**meta, "shape": list(arr.shape), "seconds": seconds}, indent=2) + "\n")
+    logger.info("%s computed in %.0f s -> %s", name, seconds, path)
+    return arr
+
+
 def cached_embeddings(encoder: Encoder, texts: Sequence[str], split: str, kind: str, cfg: Config) -> Matrix:
-    """Encode `texts` once per (encoder, split): <embeddings_dir>/<encoder>/<split>.npy, with a meta.json that
-    must match the model, revision, size, kind and FAST_RUN flag, else it is rebuilt. TF-IDF: no cache."""
+    """Embeddings of a split, cached under <embeddings_dir>/<encoder>/<split>.npy with the model, revision,
+    size, kind and FAST_RUN flag as the cache key. TF-IDF is not cached (sparse, built in seconds)."""
     if encoder.spec.name == "tfidf":
         return encoder.encode(texts, kind)
-    folder = cfg.path(cfg.embeddings_dir, encoder.spec.name.replace(":", "_"))
-    path, meta_path = folder / f"{split}.npy", folder / f"{split}.json"
     meta = {
         "model": encoder.spec.model,
         "revision": encoder.spec.revision,
         "n": len(texts),
         "kind": kind,
         "fast_run": cfg.fast_run,
+        "max_seq_length": encoder.max_seq_length,
     }
-    if meta_path.exists() and path.exists():
-        saved = json.loads(meta_path.read_text())
-        if all(saved.get(k) == v for k, v in meta.items()):
-            logger.info("embeddings of %s/%s read from %s", encoder.spec.name, split, path)
-            return np.load(path)
-    start = time.perf_counter()
-    E = encoder.encode(texts, kind)
-    folder.mkdir(parents=True, exist_ok=True)
-    np.save(path, E)
-    meta.update(
-        {
-            "d": int(E.shape[1]),
-            "max_seq_length": encoder.max_seq_length,
-            "seconds": round(time.perf_counter() - start, 1),
-        }
-    )
-    meta_path.write_text(json.dumps(meta, indent=2) + "\n")
-    logger.info("embeddings of %s/%s: %s in %.0f s", encoder.spec.name, split, E.shape, meta["seconds"])
-    return E
+    folder = cfg.path(cfg.embeddings_dir, encoder.spec.name.replace(":", "_"))
+    return cached_array(folder, split, meta, lambda: encoder.encode(texts, kind))
 
 
 def center(E: np.ndarray, mean: np.ndarray) -> np.ndarray:
@@ -319,18 +324,34 @@ def classifier_probs(
     cfg: Config, bank_texts: Sequence[str], bank_labels: np.ndarray, texts: Sequence[str]
 ) -> tuple[np.ndarray, str]:
     """Type probabilities (M, n_classes) of `texts` for the hybrid filter and their source: the m4 run
-    `cfg.classifier_run`, or a TF-IDF + logistic regression refit on the bank (FAST_RUN and interim only)."""
-    if cfg.classifier_run:
-        from ledgar.predict import load_classifier
+    `cfg.classifier_run`, or a TF-IDF + logistic regression refit on the bank (FAST_RUN only). Cached per
+    (source, texts) under <embeddings_dir>, so every encoder run reuses the same probabilities."""
+    source = cfg.classifier_run or "tfidf refit"
+    key = hashlib.sha1("\x1f".join(texts).encode()).hexdigest()[:16]
+    meta = {
+        "source": source,
+        "n": len(texts),
+        "texts_sha1": key,
+        "fast_run": cfg.fast_run,
+        "n_classes": cfg.n_classes,
+    }
 
-        clf = load_classifier(cfg.path(cfg.out_dir, cfg.classifier_run), device=cfg.device)
-        return clf.predict(texts)[1], cfg.classifier_run
-    from ledgar.train_tfidf import make_pipeline
+    def compute() -> np.ndarray:
+        if cfg.classifier_run:
+            from ledgar import predict
 
-    pipeline = make_pipeline(cfg).fit(bank_texts, np.asarray(bank_labels))
-    probs = np.zeros((len(texts), cfg.n_classes), dtype=np.float32)
-    probs[:, pipeline.classes_] = pipeline.predict_proba(texts)
-    return probs, "tfidf refit"
+            run_dir = cfg.path(cfg.out_dir, cfg.classifier_run)
+            clf = predict.load_classifier(run_dir, device=cfg.device, models_dir=cfg.path(cfg.models_dir))
+            return clf.predict(texts)[1].astype(np.float32)
+        from ledgar import train_tfidf
+
+        pipeline = train_tfidf.make_pipeline(cfg).fit(bank_texts, np.asarray(bank_labels))
+        probs = np.zeros((len(texts), cfg.n_classes), dtype=np.float32)
+        probs[:, pipeline.classes_] = pipeline.predict_proba(texts)
+        return probs
+
+    folder = cfg.path(cfg.embeddings_dir, "classifier_" + source.replace(" ", "_").replace("/", "_"))
+    return cached_array(folder, f"probs_{key}", meta, compute), source
 
 
 # --- within-type checks: self-retrieval under perturbation, constrained lawyer questions ---

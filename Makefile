@@ -35,7 +35,8 @@ notebooks:        ## execute every notebook under FAST_RUN into $(NB_OUT) (commi
 m1:               ## TF-IDF + logistic regression with the configuration of Config -> results/tfidf
 	$(PY) scripts/train.py --model tfidf
 
-m2:               ## retrieval: every off-the-shelf encoder on validation (M2_ARGS="--classifier-run <run>")
+M2_ARGS ?= --classifier-run lora_lr1e-3_ep10_seed0
+m2:               ## retrieval: every off-the-shelf encoder on validation, hybrid probabilities from M2_ARGS
 	for e in tfidf minilm e5 bge distilbert legalbert; do \
 		$(PY) scripts/retrieval.py --encoder $$e $(M2_ARGS) || exit 1; \
 	done

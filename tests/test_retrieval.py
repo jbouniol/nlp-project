@@ -269,3 +269,65 @@ def test_paired_bootstrap_macro_is_zero_for_identical_models_and_positive_for_a_
     assert same["diff"] == 0 and same["low"] == 0 == same["high"] and not same["significant"]
     better = retrieval.paired_bootstrap_macro(a, a - 0.3, y, n_boot=50, seed=0)
     assert better["diff"] == pytest.approx(0.3) and better["low"] > 0 and better["significant"]
+
+
+def test_cached_array_computes_once_per_meta(tmp_path):
+    calls = []
+
+    def compute():
+        calls.append(1)
+        return np.arange(3, dtype=np.float32)
+
+    a = retrieval.cached_array(tmp_path / "x", "probs", {"run": "r", "n": 3}, compute)
+    b = retrieval.cached_array(tmp_path / "x", "probs", {"run": "r", "n": 3}, compute)
+    retrieval.cached_array(tmp_path / "x", "probs", {"run": "r", "n": 4}, compute)
+    assert np.array_equal(a, b) and len(calls) == 2
+    assert json.loads((tmp_path / "x" / "probs.json").read_text())["n"] == 4
+
+
+def test_classifier_probs_are_cached_by_source_and_texts(tmp_path, monkeypatch):
+    from ledgar import train_tfidf
+
+    fits = []
+
+    class FakePipeline:
+        classes_ = np.array([0, 2])
+
+        def fit(self, texts, labels):
+            fits.append(len(texts))
+            return self
+
+        def predict_proba(self, texts):
+            return np.tile([0.25, 0.75], (len(texts), 1))
+
+    monkeypatch.setattr(train_tfidf, "make_pipeline", lambda cfg: FakePipeline())
+    cfg = Config.from_env(device="cpu", embeddings_dir=str(tmp_path), n_classes=3)
+    probs, source = retrieval.classifier_probs(cfg, ["a", "b"], np.array([0, 2]), ["q1", "q2", "q3"])
+    again, _ = retrieval.classifier_probs(cfg, ["a", "b"], np.array([0, 2]), ["q1", "q2", "q3"])
+    retrieval.classifier_probs(cfg, ["a", "b"], np.array([0, 2]), ["q1", "other"])
+    assert source == "tfidf refit" and probs.shape == (3, 3) and probs[0].tolist() == [0.25, 0.0, 0.75]
+    assert np.array_equal(probs, again) and fits == [2, 2], (
+        "same texts: read from the cache; new texts: refit"
+    )
+
+
+def test_classifier_probs_pass_the_models_dir_of_the_config(monkeypatch):
+    from ledgar import predict
+
+    seen = {}
+
+    class FakeClassifier:
+        def predict(self, texts):
+            return np.zeros(len(texts), dtype=int), np.full((len(texts), 100), 0.01, dtype=np.float32)
+
+    def fake_load(run_dir, device="auto", models_dir=None):
+        seen.update({"run_dir": run_dir, "device": device, "models_dir": models_dir})
+        return FakeClassifier()
+
+    monkeypatch.setattr(predict, "load_classifier", fake_load)
+    cfg = Config.from_env(
+        device="cpu", classifier_run="bert_x", models_dir="/weights", embeddings_dir="/nonexistent"
+    )
+    monkeypatch.setattr(retrieval, "cached_array", lambda folder, name, meta, compute: compute())
+    _, source = retrieval.classifier_probs(cfg, ["a"], np.array([0]), ["q"])
+    assert source == "bert_x" and seen["models_dir"] == cfg.path("/weights") and seen["device"] == "cpu"

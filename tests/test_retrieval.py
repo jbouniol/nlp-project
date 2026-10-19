@@ -141,3 +141,122 @@ def test_tfidf_is_never_cached(tmp_path):
     enc = retrieval.Encoder(retrieval.ENCODERS["tfidf"], lambda t, k: sp.csr_matrix(np.eye(len(t))), None)
     assert sp.issparse(retrieval.cached_embeddings(enc, ["a"], "train", "doc", cfg))
     assert not list(tmp_path.iterdir())
+
+
+def test_perturbation_views_are_deterministic_and_skip_short_clauses():
+    text = "The first sentence is here. The second one follows it. The third closes the clause."
+    rng = np.random.default_rng(0)
+    assert retrieval.perturb(text, "head", rng) == "The first sentence is here. The second"
+    assert retrieval.perturb(text, "tail", rng) == "one follows it. The third closes the clause."
+    a = retrieval.perturb(text, "drop_sentence", np.random.default_rng(3))
+    b = retrieval.perturb(text, "drop_sentence", np.random.default_rng(3))
+    assert a == b and a.count(".") == 2 and a != text
+    assert retrieval.perturb("One sentence. Two sentences.", "drop_sentence", rng) is None
+
+
+def test_perturbation_sources_exclude_short_and_seen_clauses():
+    texts = ["short clause", "x " * 60, "y " * 60, "z " * 60]
+    seen = np.array([False, True, False, False])
+    chosen = retrieval.perturbation_sources(texts, seen, min_words=40, n=10, seed=0)
+    assert sorted(chosen.tolist()) == [2, 3]
+    frame = retrieval.perturbation_queries(texts, chosen, seed=0)
+    assert set(frame["view"]) == {"head", "tail"}, "no clause has 3 sentences"
+    assert set(frame["source"]) == {2, 3} and len(frame) == 4
+
+
+def test_constrained_queries_match_their_own_examples_and_name_ledgar_types():
+    import re
+
+    names = set(retrieval.LEDGAR_TYPES)
+    assert len(retrieval.CONSTRAINED_QUERIES) >= 12
+    for q in retrieval.CONSTRAINED_QUERIES:
+        assert q.target in names, q.target
+        if q.pattern is not None:
+            assert re.search(q.pattern, q.example, flags=re.IGNORECASE), q.question
+
+
+def test_constraint_precision_and_lift_on_a_toy_bank():
+    q = retrieval.ConstrainedQuery(
+        "notice in thirty days", "Notices", r"thirty \(30\) days", "within thirty (30) days"
+    )
+    bank_texts = ["thirty (30) days notice", "ten days notice", "any notice", "governed by Delaware law"]
+    bank_labels = np.array([0, 0, 0, 1])
+    names = ["Notices", "Governing Laws"]
+    positions = np.array([[0, 1, 3]])
+    row = retrieval.constraint_results([q], positions, bank_texts, bank_labels, names).iloc[0]
+    assert row["type_p_at_k"] == pytest.approx(2 / 3)
+    assert row["constraint_precision"] == pytest.approx(1 / 2), "among the 2 retrieved Notices, 1 matches"
+    assert row["base_rate"] == pytest.approx(1 / 3) and row["lift"] == pytest.approx(1.5)
+
+
+def test_effective_rank_and_anisotropy_on_known_matrices():
+    eye = np.eye(6, dtype=np.float32)
+    assert retrieval.effective_rank(eye) == pytest.approx(6.0)
+    rank1 = np.tile(np.array([[0.6, 0.8, 0.0]], dtype=np.float32), (10, 1))
+    assert retrieval.effective_rank(rank1) == pytest.approx(1.0)
+    assert retrieval.anisotropy(eye, n_pairs=1000, seed=0) == pytest.approx(0.0)
+    assert retrieval.anisotropy(rank1, n_pairs=1000, seed=0) == pytest.approx(1.0)
+
+
+def test_hubness_is_skewed_when_one_clause_is_everybody_s_neighbour():
+    rng = np.random.default_rng(0)
+    E = rng.normal(size=(200, 16)).astype(np.float32)
+    E[1:] += 3 * E[0]  # every row leans towards row 0
+    E /= np.linalg.norm(E, axis=1, keepdims=True)
+    idx = Index(torch.from_numpy(E), np.zeros(200, dtype=int), np.arange(200))
+    skew, n_k = retrieval.hubness(idx, k=5)
+    assert n_k.argmax() == 0 and n_k[0] > 3 * np.median(n_k) and skew > 1
+
+
+def test_alignment_and_uniformity_on_a_toy_bank():
+    E = np.eye(4, dtype=np.float32)
+    labels = np.array([0, 0, 1, 1])
+    assert retrieval.alignment(E, labels, n_pairs=100, seed=0) == pytest.approx(0.0)
+    E2 = np.array([[1, 0], [1, 0], [0, 1], [0, 1]], dtype=np.float32)
+    assert retrieval.alignment(E2, labels, n_pairs=100, seed=0) == pytest.approx(1.0)
+    assert retrieval.uniformity(E, n_pairs=1000, seed=0) == pytest.approx(-4.0)
+
+
+def test_choose_applies_the_gate_then_the_best_p10_then_simplicity():
+    rows = [
+        {"run": "classifier", "centered": False, "variant": "dense", "p10": 0.95, "mrr": 0.40},
+        {"run": "minilm", "centered": False, "variant": "hard", "p10": 0.90, "mrr": 0.80},
+        {"run": "minilm", "centered": False, "variant": "soft:0.3", "p10": 0.88, "mrr": 0.90},
+        {"run": "minilm", "centered": True, "variant": "dense", "p10": 0.88, "mrr": 0.91},
+        {"run": "minilm", "centered": False, "variant": "dense", "p10": 0.88, "mrr": 0.92},
+        {"run": "e5", "centered": False, "variant": "dense", "p10": 0.80, "mrr": 0.93},
+    ]
+    choice = retrieval.choose(rows, gate=0.95)
+    assert choice["threshold"] == pytest.approx(0.95 * 0.93)
+    assert (choice["run"], choice["centered"], choice["variant"]) == ("minilm", False, "dense")
+    assert choice["n_gated"] == 4
+
+
+def test_retrieval_table_reads_one_row_per_run(tmp_path):
+    for name, p10 in (("minilm", 0.8), ("tfidf", 0.7)):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "metrics.json").write_text(
+            json.dumps(
+                {
+                    "model": "retrieval",
+                    "encoder": {"name": name},
+                    "centered": False,
+                    "encode_time_s": 1.0,
+                    "val": {
+                        "clause": {
+                            "p_at_1_macro": 0.9,
+                            "p_at_5_macro": 0.85,
+                            "p_at_10_macro": p10,
+                            "mrr": 0.95,
+                            "knn_macro_f1": 0.8,
+                        },
+                        "perturbation": {"mrr": 0.9},
+                        "type_names": {"p_at_10": 0.5},
+                    },
+                    "geometry": {"anisotropy": 0.1, "effective_rank": 100.0, "hubness_skew": 3.0},
+                }
+            )
+        )
+    table = retrieval.retrieval_table(tmp_path)
+    assert table["run"].tolist() == ["minilm", "tfidf"] and table["p_at_10"].tolist() == [0.8, 0.7]
+    assert "| minilm |" in retrieval.to_markdown(table) if hasattr(retrieval, "to_markdown") else True

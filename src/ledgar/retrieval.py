@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -329,3 +331,356 @@ def classifier_probs(
     probs = np.zeros((len(texts), cfg.n_classes), dtype=np.float32)
     probs[:, pipeline.classes_] = pipeline.predict_proba(texts)
     return probs, "tfidf refit"
+
+
+# --- within-type checks: self-retrieval under perturbation, constrained lawyer questions ---
+
+VIEWS = ("head", "tail", "drop_sentence")
+_SENTENCE_END = re.compile(r"(?<=\.)\s+")
+
+
+def perturb(text: str, view: str, rng: np.random.Generator) -> str | None:
+    """A degraded view of a clause: its first half, its second half, or one sentence removed (None when the
+    clause has fewer than 3 sentences)."""
+    words = text.split()
+    if view == "head":
+        return " ".join(words[: len(words) // 2])
+    if view == "tail":
+        return " ".join(words[len(words) // 2 :])
+    sentences = _SENTENCE_END.split(text.strip())
+    if len(sentences) < 3:
+        return None
+    drop = int(rng.integers(len(sentences)))
+    return " ".join(s for i, s in enumerate(sentences) if i != drop)
+
+
+def perturbation_sources(
+    texts: Sequence[str], seen: np.ndarray, min_words: int, n: int, seed: int
+) -> np.ndarray:
+    """Positions of up to `n` clauses with at least `min_words` words and no copy in the bank, in order."""
+    long_enough = np.array([len(t.split()) >= min_words for t in texts])
+    eligible = np.flatnonzero(long_enough & ~np.asarray(seen))
+    return np.sort(np.random.default_rng(seed).permutation(eligible)[:n])
+
+
+def perturbation_queries(texts: Sequence[str], sources: np.ndarray, seed: int) -> pd.DataFrame:
+    """One row per (source, view) with the perturbed text; views that do not apply are skipped."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    for pos in sources:
+        for view in VIEWS:
+            q = perturb(texts[pos], view, rng)
+            if q:
+                rows.append({"source": int(pos), "view": view, "text": q})
+    return pd.DataFrame(rows, columns=["source", "view", "text"])
+
+
+@dataclass(frozen=True)
+class ConstrainedQuery:
+    question: str
+    target: str
+    pattern: str | None
+    example: str
+
+
+# The 100 LEDGAR clause types (checked against the dataset's label names by scripts/retrieval.py).
+LEDGAR_TYPES = (
+    "Adjustments", "Agreements", "Amendments", "Anti-Corruption Laws", "Applicable Laws", "Approvals",
+    "Arbitration", "Assignments", "Assigns", "Authority", "Authorizations", "Base Salary", "Benefits",
+    "Binding Effects", "Books", "Brokers", "Capitalization", "Change In Control", "Closings",
+    "Compliance With Laws", "Confidentiality", "Consent To Jurisdiction", "Consents", "Construction",
+    "Cooperation", "Costs", "Counterparts", "Death", "Defined Terms", "Definitions", "Disability",
+    "Disclosures", "Duties", "Effective Dates", "Effectiveness", "Employment", "Enforceability",
+    "Enforcements", "Entire Agreements", "Erisa", "Existence", "Expenses", "Fees",
+    "Financial Statements", "Forfeitures", "Further Assurances", "General", "Governing Laws",
+    "Headings", "Indemnifications", "Indemnity", "Insurances", "Integration", "Intellectual Property",
+    "Interests", "Interpretations", "Jurisdictions", "Liens", "Litigations", "Miscellaneous",
+    "Modifications", "No Conflicts", "No Defaults", "No Waivers", "Non-Disparagement", "Notices",
+    "Organizations", "Participations", "Payments", "Positions", "Powers", "Publicity", "Qualifications",
+    "Records", "Releases", "Remedies", "Representations", "Sales", "Sanctions", "Severability",
+    "Solvency", "Specific Performance", "Submission To Jurisdiction", "Subsidiaries", "Successors",
+    "Survival", "Tax Withholdings", "Taxes", "Terminations", "Terms", "Titles",
+    "Transactions With Affiliates", "Use Of Proceeds", "Vacations", "Venues", "Vesting",
+    "Waiver Of Jury Trials", "Waivers", "Warranties", "Withholdings",
+)  # fmt: skip
+
+# Lawyer questions with a lexical, regex-checkable constraint; `example` is a phrase the pattern must match.
+CONSTRAINED_QUERIES = (
+    ConstrainedQuery(
+        "termination clauses with a 30-day notice period",
+        "Terminations",
+        r"thirty \(30\) days|30 days",
+        "upon thirty (30) days' prior written notice",
+    ),
+    ConstrainedQuery(
+        "governing law clause choosing New York law",
+        "Governing Laws",
+        r"New York",
+        "governed by the laws of the State of New York",
+    ),
+    ConstrainedQuery(
+        "governing law clause choosing Delaware law",
+        "Governing Laws",
+        r"Delaware",
+        "laws of the State of Delaware",
+    ),
+    ConstrainedQuery(
+        "assignment clause requiring the prior written consent of the other party",
+        "Assignments",
+        r"prior written consent",
+        "without the prior written consent of the Company",
+    ),
+    ConstrainedQuery(
+        "agreement may be executed in counterparts delivered by electronic signature or facsimile",
+        "Counterparts",
+        r"electronic|facsimile|pdf",
+        "delivered by facsimile or electronic transmission",
+    ),
+    ConstrainedQuery(
+        "indemnification clause covering reasonable attorneys' fees",
+        "Indemnifications",
+        r"attorneys'? fees",
+        "including reasonable attorneys' fees",
+    ),
+    ConstrainedQuery(
+        "confidentiality obligations surviving for two years after termination",
+        "Confidentiality",
+        r"two \(2\) years|2 years|twenty-four \(24\) months",
+        "for a period of two (2) years following termination",
+    ),
+    ConstrainedQuery(
+        "notices sent by email or electronic mail are effective",
+        "Notices",
+        r"e-?mail|electronic mail",
+        "by electronic mail (e-mail)",
+    ),
+    ConstrainedQuery(
+        "arbitration under the rules of the American Arbitration Association",
+        "Arbitration",
+        r"American Arbitration Association|\bAAA\b",
+        "the rules of the American Arbitration Association",
+    ),
+    ConstrainedQuery(
+        "waiver of the right to a jury trial",
+        "Waiver Of Jury Trials",
+        r"jury",
+        "waives any right to a trial by jury",
+    ),
+    ConstrainedQuery("severability clause", "Severability", None, ""),
+    ConstrainedQuery(
+        "entire agreement clause superseding all prior agreements",
+        "Entire Agreements",
+        r"supersed",
+        "supersedes all prior agreements and understandings",
+    ),
+    ConstrainedQuery(
+        "payment clause charging interest on late payments",
+        "Payments",
+        r"interest",
+        "shall bear interest at the rate",
+    ),
+    ConstrainedQuery("non-disparagement clause", "Non-Disparagement", None, ""),
+    ConstrainedQuery(
+        "insurance clause requiring a minimum coverage amount in dollars",
+        "Insurances",
+        r"\$\s?[0-9][0-9,]*",
+        "not less than $1,000,000 per occurrence",
+    ),
+    ConstrainedQuery(
+        "withholding of taxes from payments to the employee",
+        "Tax Withholdings",
+        r"withh?old",
+        "withhold from any amounts payable all federal, state and local taxes",
+    ),
+    ConstrainedQuery(
+        "change in control triggering accelerated vesting",
+        "Change In Control",
+        r"vest",
+        "shall become fully vested upon a Change in Control",
+    ),
+    ConstrainedQuery(
+        "submission to the exclusive jurisdiction of the courts of New York",
+        "Submission To Jurisdiction",
+        r"New York",
+        "the exclusive jurisdiction of the courts of the State of New York",
+    ),
+)
+
+
+def constraint_results(
+    queries: Sequence[ConstrainedQuery],
+    positions: np.ndarray,
+    bank_texts: Sequence[str],
+    bank_labels: np.ndarray,
+    label_names: Sequence[str],
+) -> pd.DataFrame:
+    """Per question: share of the top-k with the target type, share of those matching the constraint, the base
+    rate of the constraint among the bank clauses of that type, and the lift (precision / base rate)."""
+    bank_labels = np.asarray(bank_labels)
+    rows = []
+    for q, pos in zip(queries, positions, strict=True):
+        target = list(label_names).index(q.target)
+        of_type = pos[bank_labels[pos] == target]
+        row: dict[str, Any] = {
+            "question": q.question,
+            "target": q.target,
+            "pattern": q.pattern,
+            "type_p_at_k": float(np.mean(bank_labels[pos] == target)),
+            "constraint_precision": np.nan,
+            "base_rate": np.nan,
+            "lift": np.nan,
+        }
+        if q.pattern is not None:
+            match = re.compile(q.pattern, flags=re.IGNORECASE)
+            in_type = np.flatnonzero(bank_labels == target)
+            row["base_rate"] = (
+                float(np.mean([bool(match.search(bank_texts[i])) for i in in_type]))
+                if len(in_type)
+                else np.nan
+            )
+            if len(of_type):
+                row["constraint_precision"] = float(
+                    np.mean([bool(match.search(bank_texts[i])) for i in of_type])
+                )
+                row["lift"] = row["constraint_precision"] / row["base_rate"] if row["base_rate"] else np.nan
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+# --- geometry of the bank embeddings ---
+
+
+def _pair_cos(E: Matrix, i: np.ndarray, j: np.ndarray) -> np.ndarray:
+    if sp.issparse(E):
+        return np.asarray(E[i].multiply(E[j]).sum(axis=1)).ravel()
+    E = np.asarray(E)
+    return np.einsum("ij,ij->i", E[i], E[j])
+
+
+def _random_pairs(n: int, n_pairs: int, rng: np.random.Generator) -> tuple[np.ndarray, np.ndarray]:
+    i, j = rng.integers(0, n, n_pairs), rng.integers(0, n - 1, n_pairs)
+    return i, j + (j >= i)  # j != i
+
+
+def anisotropy(E: Matrix, n_pairs: int = 100_000, seed: int = 0) -> float:
+    """Mean cosine between random pairs of bank rows: 0 for an isotropic cloud, close to 1 in a narrow cone
+    (Ethayarajh 2019)."""
+    i, j = _random_pairs(E.shape[0], n_pairs, np.random.default_rng(seed))
+    return float(_pair_cos(E, i, j).mean())
+
+
+def effective_rank(E: Matrix) -> float:
+    """exp(entropy of the normalised singular values) (Roy & Vetterli 2007); NaN for a sparse matrix."""
+    if sp.issparse(E):
+        return float("nan")
+    E = np.asarray(E, dtype=np.float64)
+    s = np.sqrt(np.clip(np.linalg.eigvalsh(E.T @ E), 0, None))
+    p = s / s.sum()
+    p = p[p > 0]
+    return float(np.exp(-(p * np.log(p)).sum()))
+
+
+def hubness(index: Index, k: int = 10, block: int = 2048) -> tuple[float, np.ndarray]:
+    """Skewness of N_k, the number of top-k lists (bank vs bank, self excluded) each clause appears in
+    (Radovanovic et al. 2010), and N_k itself."""
+    from scipy.stats import skew
+
+    _, pos = index.search(index.E, k, exclude_self=True, block=block)
+    n_k = np.bincount(pos.ravel(), minlength=len(index))
+    return float(skew(n_k)), n_k
+
+
+def alignment(E: Matrix, labels: np.ndarray, n_pairs: int = 10_000, seed: int = 0) -> float:
+    """Mean cosine between random pairs of clauses of the same type (Wang & Isola 2020, higher is tighter)."""
+    rng = np.random.default_rng(seed)
+    labels = np.asarray(labels)
+    groups = {y: np.flatnonzero(labels == y) for y in np.unique(labels)}
+    groups = {y: g for y, g in groups.items() if len(g) > 1}
+    anchors = np.concatenate(list(groups.values()))
+    i = rng.choice(anchors, n_pairs)
+    j = np.array([rng.choice(groups[labels[a]][groups[labels[a]] != a]) for a in i])
+    return float(_pair_cos(E, i, j).mean())
+
+
+def uniformity(E: Matrix, n_pairs: int = 100_000, seed: int = 0) -> float:
+    """log E[exp(-2 ||u - v||^2)] over random pairs (Wang & Isola 2020; lower = more uniform)."""
+    i, j = _random_pairs(E.shape[0], n_pairs, np.random.default_rng(seed))
+    sq_dist = 2 - 2 * _pair_cos(E, i, j)
+    return float(np.log(np.mean(np.exp(-2 * sq_dist))))
+
+
+def geometry(
+    index: Index, texts: Sequence[str], k: int = 10, seed: int = 0
+) -> tuple[dict[str, float], pd.DataFrame]:
+    """The diagnostics of the bank embeddings, and the 10 largest hubs with their type and a text snippet."""
+    E = index.E if index.sparse else index.E.cpu().numpy()
+    skew, n_k = hubness(index, k)
+    top = np.argsort(-n_k, kind="stable")[:10]
+    hubs = pd.DataFrame(
+        {
+            "position": top,
+            "index": index.index[top],
+            "label": index.labels[top],
+            "n_k": n_k[top],
+            "text": [texts[i][:120] for i in top],
+        }
+    )
+    stats = {
+        "anisotropy": anisotropy(E, seed=seed),
+        "effective_rank": effective_rank(E),
+        "hubness_skew": skew,
+        "hubness_max_share": float(n_k.max() / (k * len(index))),
+        "alignment": alignment(E, index.labels, seed=seed),
+        "uniformity": uniformity(E, seed=seed),
+    }
+    return stats, hubs
+
+
+# --- the pre-registered rule and the results table ---
+
+_COMPLEXITY = {"dense": 0, "soft": 1, "hard": 2}
+
+
+def choose(rows: Sequence[dict[str, Any]], gate: float = 0.95) -> dict[str, Any]:
+    """Candidates = (run, centered, variant) rows with their validation macro P@10 and perturbation MRR. Gate:
+    MRR >= gate x the best MRR; choice: best P@10 among gated rows, ties to fewer components."""
+    best_mrr = max(r["mrr"] for r in rows)
+    threshold = gate * best_mrr
+    gated = [r for r in rows if r["mrr"] >= threshold]
+    ranked = sorted(
+        gated, key=lambda r: (-r["p10"], _COMPLEXITY[r["variant"].split(":")[0]], bool(r["centered"]))
+    )
+    return {
+        **ranked[0],
+        "threshold": threshold,
+        "n_gated": len(gated),
+        "n_candidates": len(rows),
+        "gate": gate,
+    }
+
+
+def retrieval_table(results_dir: str | Path) -> pd.DataFrame:
+    """One row per results/retrieval/*/metrics.json, built only from those files."""
+    rows = []
+    for path in sorted(Path(results_dir).glob("*/metrics.json")):
+        m = json.loads(path.read_text())
+        clause, geo = m["val"]["clause"], m.get("geometry", {})
+        rows.append(
+            {
+                "run": path.parent.name,
+                "encoder": m["encoder"]["name"],
+                "centered": m.get("centered", False),
+                "p_at_1": clause["p_at_1_macro"],
+                "p_at_5": clause["p_at_5_macro"],
+                "p_at_10": clause["p_at_10_macro"],
+                "mrr": clause["mrr"],
+                "knn_macro_f1": clause["knn_macro_f1"],
+                "perturb_mrr": m["val"]["perturbation"]["mrr"],
+                "type_names_p_at_10": m["val"]["type_names"]["p_at_10"],
+                "anisotropy": geo.get("anisotropy"),
+                "effective_rank": geo.get("effective_rank"),
+                "hubness_skew": geo.get("hubness_skew"),
+                "encode_time_s": m.get("encode_time_s"),
+            }
+        )
+    return pd.DataFrame(rows)

@@ -322,7 +322,12 @@ def final(cfg: Config) -> None:
         "seen_in_train": data.seen_in_train(ledgar, "test"),
         "truncated": encoder.truncated(test_texts),
     }
-    test: dict[str, Any] = {"chosen_variant": variant}
+    stamp = runs.make_manifest(run_cfg)  # the one test read, dated and tied to a commit
+    test: dict[str, Any] = {
+        "chosen_variant": variant,
+        "read_at_utc": stamp["date_utc"],
+        "git_sha": stamp["git_sha"],
+    }
     clause, scores, pos, vote, p10 = clause_metrics(index, E_test, y_test, cfg)
     test["dense"] = {"clause": clause, "by_group": by_group(p10, y_test, groups)}
     if variant != "dense":
@@ -358,6 +363,8 @@ def main(argv: list[str] | None = None) -> None:
     mode.add_argument("--choose", action="store_true", help="apply the pre-registered rule")
     mode.add_argument("--final", action="store_true", help="the chosen configuration on the test split, once")
     cfg, args = Config.from_args(argv, parser)
+    if cfg.retrieval_k < max(KS):
+        raise SystemExit(f"--retrieval-k must be at least {max(KS)}: P@{max(KS)} is reported")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s: %(message)s")
     if args.encoder:
         run_encoder(cfg, args.encoder)

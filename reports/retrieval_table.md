@@ -1,4 +1,4 @@
-| run | encoder | centered | p_at_1 | p_at_5 | p_at_10 | mrr | knn_macro_f1 | perturb_mrr | type_names_p_at_10 | anisotropy | effective_rank | hubness_skew | encode_time_s |
+| run | encoder | centered | p_at_1 | p_at_5 | p_at_10 | mrr_micro | knn_macro_f1 | perturb_mrr | type_names_p_at_10 | anisotropy | effective_rank | hubness_skew | encode_time_s |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | bge | bge | False | 0.7688 | 0.6935 | 0.6591 | 0.8765 | 0.7317 | 0.7487 | 0.5580 | 0.6165 | 258.8932 | 2.0590 | 356.3000 |
 | bge+center | bge | True | 0.7718 | 0.7020 | 0.6689 | 0.8783 | 0.7381 | 0.7422 | 0.5400 | -0.0001 | 305.8527 | 2.0265 | 356.3000 |

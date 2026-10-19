@@ -455,6 +455,8 @@
   },
   "test": {
     "chosen_variant": "dense",
+    "read_at_utc": "2026-10-19T19:45:18+00:00",
+    "git_sha": "cf753a6db4f2955ff5e35e595c708fb555f9d38b",
     "dense": {
       "clause": {
         "n_queries": 10000,

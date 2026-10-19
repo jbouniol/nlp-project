@@ -82,6 +82,7 @@ class Encoder:
     encode: EncodeFn
     max_seq_length: int | None
     tokenizer: Any = None
+    weights_sha1: str | None = None  # fingerprint of fine-tuned weights read from disk (classifier:<run>)
 
     def truncated(self, texts: Sequence[str]) -> np.ndarray:
         """True for each text longer than the encoder's window (the TF-IDF encoder truncates nothing)."""
@@ -151,13 +152,19 @@ def _classifier_encoder(spec: EncoderSpec, cfg: Config) -> Encoder:
         return out
 
     clf.model.eval()
-    return Encoder(spec, encode, clf.max_length, clf.tokenizer)
+    adapter = run_dir / "adapter" / "adapter_model.safetensors"
+    weights = hashlib.sha1(adapter.read_bytes()).hexdigest()[:16] if adapter.exists() else None
+    return Encoder(spec, encode, clf.max_length, clf.tokenizer, weights)
 
 
 def length_sorted_batches(texts: Sequence[str], batch_size: int) -> list[np.ndarray]:
     """Index batches of texts sorted by word count, so each batch is padded to a similar length."""
     order = np.argsort([len(t.split()) for t in texts], kind="stable")
     return [order[i : i + batch_size] for i in range(0, len(order), batch_size)]
+
+
+def sha1_of_texts(texts: Sequence[str]) -> str:
+    return hashlib.sha1("\x1f".join(texts).encode()).hexdigest()[:16]
 
 
 def cached_array(
@@ -189,7 +196,9 @@ def cached_embeddings(encoder: Encoder, texts: Sequence[str], split: str, kind: 
     meta = {
         "model": encoder.spec.model,
         "revision": encoder.spec.revision,
+        "weights_sha1": encoder.weights_sha1,
         "n": len(texts),
+        "texts_sha1": sha1_of_texts(texts),
         "kind": kind,
         "fast_run": cfg.fast_run,
         "max_seq_length": encoder.max_seq_length,
@@ -339,7 +348,7 @@ def classifier_probs(
     `cfg.classifier_run`, or a TF-IDF + logistic regression refit on the bank (FAST_RUN only). Cached per
     (source, texts) under <embeddings_dir>, so every encoder run reuses the same probabilities."""
     source = cfg.classifier_run or "tfidf refit"
-    key = hashlib.sha1("\x1f".join(texts).encode()).hexdigest()[:16]
+    key = sha1_of_texts(texts)
     meta = {
         "source": source,
         "n": len(texts),
@@ -706,7 +715,7 @@ def retrieval_table(results_dir: str | Path) -> pd.DataFrame:
                 "p_at_1": clause["p_at_1_macro"],
                 "p_at_5": clause["p_at_5_macro"],
                 "p_at_10": clause["p_at_10_macro"],
-                "mrr": clause["mrr"],
+                "mrr_micro": clause["mrr"],
                 "knn_macro_f1": clause["knn_macro_f1"],
                 "perturb_mrr": m["val"]["perturbation"]["mrr"],
                 "type_names_p_at_10": m["val"]["type_names"]["p_at_10"],

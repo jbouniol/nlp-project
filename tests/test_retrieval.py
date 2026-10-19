@@ -8,7 +8,7 @@ import pytest
 import scipy.sparse as sp
 import torch
 
-from ledgar import retrieval
+from ledgar import retrieval, runs
 from ledgar.config import Config
 from ledgar.retrieval import Index
 
@@ -132,8 +132,14 @@ def test_cached_embeddings_reuse_the_cache_only_when_meta_matches(tmp_path):
     assert np.array_equal(E1, E2) and calls == ["doc"], "second call read from the cache"
     retrieval.cached_embeddings(enc, ["a", "b", "c"], "train", "doc", cfg)
     assert calls == ["doc", "doc"], "a different split size rebuilds the cache"
+    retrieval.cached_embeddings(enc, ["a", "b", "x"], "train", "doc", cfg)
+    assert calls == ["doc", "doc", "doc"], "same size, other clauses (another FAST_RUN seed): rebuilt"
+    enc2 = retrieval.Encoder(retrieval.ENCODERS["minilm"], encode, 256, weights_sha1="deadbeef")
+    retrieval.cached_embeddings(enc2, ["a", "b", "x"], "train", "doc", cfg)
+    assert len(calls) == 4, "other weights (a retrained adapter under the same run name): rebuilt"
     meta = json.loads((tmp_path / "minilm" / "train.json").read_text())
     assert meta["n"] == 3 and meta["revision"] == retrieval.ENCODERS["minilm"].revision
+    assert meta["texts_sha1"] and meta["weights_sha1"] == "deadbeef"
 
 
 def test_tfidf_is_never_cached(tmp_path):
@@ -259,7 +265,7 @@ def test_retrieval_table_reads_one_row_per_run(tmp_path):
         )
     table = retrieval.retrieval_table(tmp_path)
     assert table["run"].tolist() == ["minilm", "tfidf"] and table["p_at_10"].tolist() == [0.8, 0.7]
-    assert "| minilm |" in retrieval.to_markdown(table) if hasattr(retrieval, "to_markdown") else True
+    assert "| minilm |" in runs.to_markdown(table)
 
 
 def test_paired_bootstrap_macro_is_zero_for_identical_models_and_positive_for_a_better_one():

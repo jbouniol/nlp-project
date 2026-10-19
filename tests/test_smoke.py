@@ -224,6 +224,7 @@ def test_fast_run_retrieval_script(tmp_path):
     final = runs.load_run(tmp_path / "retrieval" / choice["run"])["metrics"]["test"]
     assert set(final) >= {"dense", choice["variant"], "comparison"} or choice["variant"] == "dense"
     assert final["dense"]["clause"]["p_at_10_macro"] > 0.05 and "by_group" in final["dense"]
+    assert final["read_at_utc"] and "git_sha" in final, "the one test read is dated and tied to a commit"
     assert runs.missing_files(tmp_path / "retrieval" / choice["run"]) == []
     assert (tmp_path / "retrieval" / choice["run"] / "topk_test.npz").exists()
     again = subprocess.run([*script, "--final", *out], cwd=ROOT, capture_output=True, text=True)

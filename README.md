@@ -143,7 +143,7 @@ partial), a cross-encoder reranker (50 forward passes per query, a second model 
 *Validation, bank = training clauses; one row per bank encoding (`make table` -> `reports/retrieval_table.md`;
 details and figures in `notebooks/07_retrieval.ipynb`).*
 
-| encoder | P@10 macro | MRR | 10-NN macro-F1 | perturbation MRR | type names P@10 | constraint precision | anisotropy | encode (s) |
+| encoder | P@10 macro | MRR@10 (micro) | 10-NN macro-F1 | perturbation MRR | type names P@10 | constraint precision | anisotropy | encode (s) |
 |---|---|---|---|---|---|---|---|---|
 | classifier features (LoRA, 10 ep.) | 0.758 | 0.897 | 0.790 | 0.508 | 0.655 | 0.410 | 0.177 | 730 |
 | classifier features (LoRA, 10 ep.) (centred) | 0.758 | 0.896 | 0.790 | 0.510 | 0.657 | 0.453 | -0.000 | 730 |
@@ -170,14 +170,16 @@ What the runs showed, in the order of the notebook:
   within-type check does: a clause cut in half finds its source with MRR 0.90 under TF-IDF, 0.63-0.76 under every
   dense encoder, 0.51 under the classifier's features, whose per-type collapse is the one predicted above.
 - Every hybrid variant of every encoder scores 0.80-0.81: that is the LoRA classifier's type accuracy, not
-  retrieval, and it costs 12 to 45 points of within-type MRR (a wrong predicted type removes the source clause).
+  retrieval, and it costs 8 to 28 points of within-type MRR against the encoder's own dense variant (a wrong
+  predicted type removes the source clause).
   The type is worth a filter the lawyer ticks, not one the classifier guesses.
 - Raw MLM encoders live in a cone (mean cosine between random clauses 0.80-0.88); centring recovers about a point.
   TF-IDF's weakness is hubness: one boilerplate "entire agreement" clause appears in 414 of the 60 000 top-10 lists.
 - For lawyer *questions* the order reverses, and it is reported, not decisional: contrastive sentence encoders
-  answer type names (P@10 0.56-0.59) and keep the asked constraint in 86-88 % of the retrieved clauses (lift 4 over
-  the base rate), TF-IDF 0.48 and 75 %, Legal-BERT and DistilBERT 0.03-0.05 and no better than chance. A dense entry
-  point for questions, with TF-IDF for pasted clauses, would need its own pre-registration.
+  answer type names (P@10 0.53-0.59) and keep the asked constraint in 76-88 % of the retrieved clauses of the right
+  type (e5 and MiniLM 86-88 %, lift 4 over the base rate; means over the questions where that type was retrieved),
+  TF-IDF 0.48 and 75 %, Legal-BERT and DistilBERT 0.02-0.05 and no better than the base rate. A dense entry point for
+  questions, with TF-IDF for pasted clauses, would need its own pre-registration.
 - Not to be used for: establishing legal equivalence (textual similarity only, no lawyer validated the proxy),
   contracts outside English US-style drafting, and clauses longer than the encoder's window are read truncated.
 

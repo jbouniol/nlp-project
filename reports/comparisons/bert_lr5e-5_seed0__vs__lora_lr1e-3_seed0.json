@@ -1,0 +1,32 @@
+{
+  "a": "bert_lr5e-5_seed0",
+  "b": "lora_lr1e-3_seed0",
+  "n": 10000,
+  "accuracy": [
+    0.8656,
+    0.8582
+  ],
+  "macro_f1": [
+    0.7781486533252595,
+    0.7826452419825154
+  ],
+  "contingency": {
+    "both_correct": 8333,
+    "only_a": 323,
+    "only_b": 249,
+    "both_wrong": 1095
+  },
+  "mcnemar": {
+    "chi2": 9.316433566433567,
+    "p": 0.0022710761799430057,
+    "exact": false,
+    "significant": true
+  },
+  "bootstrap": {
+    "diff": -0.004496588657255884,
+    "low": -0.01470916581495405,
+    "high": 0.0097550980693751,
+    "n_boot": 1000,
+    "significant": false
+  }
+}

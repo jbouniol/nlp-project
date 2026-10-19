@@ -1,0 +1,32 @@
+{
+  "a": "lora_all_seed0",
+  "b": "lora_lr1e-3_seed0",
+  "n": 10000,
+  "accuracy": [
+    0.8605,
+    0.8582
+  ],
+  "macro_f1": [
+    0.786688772247235,
+    0.7826452419825154
+  ],
+  "contingency": {
+    "both_correct": 8356,
+    "only_a": 249,
+    "only_b": 226,
+    "both_wrong": 1169
+  },
+  "mcnemar": {
+    "chi2": 1.0189473684210526,
+    "p": 0.31276882648865206,
+    "exact": false,
+    "significant": false
+  },
+  "bootstrap": {
+    "diff": 0.004043530264719597,
+    "low": -0.00630080987160396,
+    "high": 0.016002020495050565,
+    "n_boot": 1000,
+    "significant": false
+  }
+}

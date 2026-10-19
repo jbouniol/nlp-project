@@ -1,0 +1,16 @@
+{
+  "model": "lora",
+  "trainable_params": 814948,
+  "total_params": 67845320,
+  "memory_gb_estimate": 0.281160656,
+  "initial_loss": 4.62382698059082,
+  "global_step": 18750,
+  "val": {
+    "accuracy": 0.8706,
+    "macro_f1": 0.8079530321773879
+  },
+  "test": {
+    "accuracy": 0.8748,
+    "macro_f1": 0.8149309781972032
+  }
+}

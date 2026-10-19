@@ -87,9 +87,9 @@ class Config:
     batch_size: int = 32
     grad_accum: int = 1
     eval_batch_size: int = 64
-    epochs: int = 3
-    lr_full: float = 3e-5
-    lr_lora: float = 5e-4
+    epochs: int = 10  # follow-up kept on validation (m4_choice_epochs.json); the registered runs used 3
+    lr_full: float = 5e-5  # chosen on validation (results/search/m4_choice.json)
+    lr_lora: float = 1e-3  # chosen on validation (results/search/m4_choice.json)
     warmup_ratio: float = 0.1
     weight_decay: float = 0.01
     lora_r: int = 8
@@ -238,4 +238,6 @@ def set_seed(seed: int) -> None:
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
     logger.info("seed set to %d", seed)

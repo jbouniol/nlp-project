@@ -1,0 +1,32 @@
+{
+  "a": "bert_lr5e-5_ep10_seed0",
+  "b": "lstm_seed0",
+  "n": 10000,
+  "accuracy": [
+    0.8786,
+    0.8469
+  ],
+  "macro_f1": [
+    0.8258743151852274,
+    0.7798561752957276
+  ],
+  "contingency": {
+    "both_correct": 8156,
+    "only_a": 630,
+    "only_b": 313,
+    "both_wrong": 901
+  },
+  "mcnemar": {
+    "chi2": 105.89183457051962,
+    "p": 7.787183405588641e-25,
+    "exact": false,
+    "significant": true
+  },
+  "bootstrap": {
+    "diff": 0.046018139889499765,
+    "low": 0.034217924000332064,
+    "high": 0.05677874030074401,
+    "n_boot": 1000,
+    "significant": true
+  }
+}

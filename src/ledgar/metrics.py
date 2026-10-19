@@ -35,7 +35,7 @@ def f1_scores(C: np.ndarray) -> tuple[np.ndarray, float, float]:
     tp = np.diag(C).astype(float)
     denom = C.sum(axis=0) + C.sum(axis=1)
     f1 = np.divide(2 * tp, denom, out=np.zeros_like(tp), where=denom > 0)
-    present = C.sum(axis=1) > 0
+    present = C.sum(axis=1) > 0  # a class absent from y_true has no F1 to average (Books on validation)
     macro = float(f1[present].mean()) if present.any() else 0.0
     micro = float(tp.sum() / C.sum()) if C.sum() else 0.0
     return f1, macro, micro

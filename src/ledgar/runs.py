@@ -17,11 +17,13 @@ from ledgar.config import ROOT, Config
 
 logger = logging.getLogger(__name__)
 
+# The versioned artefacts of a final run. pred_<split>.npz (with the logits) is written too but kept out of
+# git for its size; pred_<split>.csv holds the same labels and predictions.
 REQUIRED_FILES = (
     "config.json",
     "metrics.json",
-    "pred_val.npz",
-    "pred_test.npz",
+    "pred_val.csv",
+    "pred_test.csv",
     "log_history.json",
     "manifest.json",
 )
@@ -99,9 +101,16 @@ def save_predictions(
 
 
 def load_predictions(run_dir: str | Path, split: str) -> dict[str, np.ndarray]:
-    """Read pred_<split>.npz back as a dictionary of arrays."""
-    with np.load(Path(run_dir) / f"pred_{split}.npz") as data:
-        return {k: data[k] for k in data.files}
+    """index, y_true, y_pred (and logits when pred_<split>.npz is present) of a split, in dataset order.
+
+    The .npz is not versioned; in a fresh clone the predictions come from pred_<split>.csv, without logits.
+    """
+    path = Path(run_dir) / f"pred_{split}.npz"
+    if path.exists():
+        with np.load(path) as data:
+            return {k: data[k] for k in data.files}
+    table = pd.read_csv(Path(run_dir) / f"pred_{split}.csv")
+    return {k: table[k].to_numpy() for k in ("index", "y_true", "y_pred")}
 
 
 def load_run(run_dir: str | Path) -> dict[str, Any]:

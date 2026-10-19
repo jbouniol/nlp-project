@@ -1,0 +1,16 @@
+{
+  "bert": {
+    "val_macro_f1": {
+      "3 epochs": 0.7909229837679528,
+      "10 epochs": 0.8202080947992958
+    },
+    "keep_10_epochs": true
+  },
+  "lora": {
+    "val_macro_f1": {
+      "3 epochs": 0.7848823314138127,
+      "10 epochs": 0.8069749298782904
+    },
+    "keep_10_epochs": true
+  }
+}

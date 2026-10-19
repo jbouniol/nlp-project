@@ -10,6 +10,7 @@ on the official held-out test set and compared with paired tests.
 | m1 | TF-IDF + logistic regression | `notebooks/02_baseline_tfidf.ipynb` |
 | m3 | LSTM / BiLSTM (+ GloVe) | `notebooks/03_lstm_classifier.ipynb` |
 | m4 | DistilBERT, full fine-tuning and LoRA | `notebooks/04_finetune_distilbert.ipynb`, `notebooks/05_lora.ipynb` |
+| m2 | clause retrieval: sentence-transformer index, hybrid type filter | `notebooks/06_retrieval.ipynb` |
 
 > Work in progress: results, the pre-registered comparison and the model card are added milestone by milestone.
 
@@ -51,6 +52,48 @@ candidate; otherwise full fine-tuning is.
 Secondary comparisons, same tests: the best transformer vs the TF-IDF baseline (is a transformer worth its
 cost?), the transformer vs the LSTM, and LoRA on every linear layer vs LoRA on `q_lin`, `v_lin`.
 
+## Part 2: clause retrieval (m2)
+
+Given a pasted clause or a lawyer's question, return the most similar clauses of a clause bank. Bank = the 60 000
+training clauses; queries = the 10 000 validation clauses; the test split is read once at the end, for the chosen
+configuration. A retrieved clause counts as relevant when it has the clause type of the query: a proxy that
+measures the type, not the wording inside a type, so it is completed by two within-type checks.
+
+**Encoders compared on validation.** TF-IDF cosine (the lexical baseline), three off-the-shelf sentence
+transformers (`all-MiniLM-L6-v2`, `e5-small-v2`, `bge-small-en-v1.5`), `distilbert-base-uncased` mean-pooled (a
+negative control: raw encoders are anisotropic), `legal-bert-base-uncased` mean-pooled (a domain MLM, no training
+of ours) and the penultimate features of the m4 LoRA classifier (expected to win the type proxy and lose the
+wording inside a type). Every dense encoder is also evaluated after centering on the bank mean. Exact search by
+matrix product; no index approximation.
+
+**Evaluations.** (1) clause -> clause: P@1, P@5, P@10 and MRR, macro-averaged over clause types, by frequency band,
+seen / not seen in training, truncated / whole; the 10-nearest-neighbour vote is also scored as a classifier
+(macro-F1). (2) The 100 type names as zero-shot queries. (3) Self-retrieval under perturbation: 1 000 validation
+clauses without a copy in the bank, each cut to its first half, its second half, or with one sentence removed, must
+retrieve themselves at rank 1 among the bank (Hit@1, MRR): the within-type check. (4) About 15 lawyer questions with
+a regex-checkable constraint ("termination clauses with a 30-day notice period"): type precision, constraint
+precision among the retrieved clauses of the type, and the lift over the base rate of the constraint in that type.
+(5) Geometry of the bank embeddings: anisotropy, effective rank, hubness, alignment / uniformity.
+
+**Hybrid.** The classifier of part 1 predicts the type of the query; the bank is then restricted to that type
+(hard) or re-scored with `cos + lambda * log p(type)` (soft, lambda in {0.1, 0.3, 1, 3}). The probabilities come
+from the m4 LoRA classifier for every decisional run.
+
+**Pre-registered decision rule** (written before any retrieval run). Candidates = every encoder x {raw, centered} x
+{dense, soft lambda, hard}. Gate: perturbation MRR >= 0.95 x the best perturbation MRR over all candidates. Choice =
+the best macro P@10 on validation among the gated candidates; ties go to the variant with fewer components (dense
+before soft before hard, raw before centered). The chosen variant and the dense variant of the same encoder are the
+two final models evaluated on the test split, once, with a paired bootstrap of their macro P@10 difference. The
+natural-language query results are reported, not decisional.
+
+**Out of scope, with their cost.** Our own MLM pre-training (GPU hours for an objective that does not teach
+similarity; Legal-BERT stands in), contrastive fine-tuning on same-type pairs (optimises the proxy we know is
+partial), a cross-encoder reranker (50 forward passes per query, a second model to audit).
+
+### Retrieval results
+
+*Generated from `results/retrieval/` by `make table`, once the runs exist.*
+
 ## How to reproduce
 
 ```bash
@@ -67,6 +110,8 @@ python scripts/train.py --model tfidf                                  # m1 (= m
 python scripts/search_lstm.py                                          # m3: one factor at a time, on validation
 python scripts/train.py --model lora --search --lr-lora 5e-4 --seed 0  # m4: a validation-only run
 python scripts/predict_test.py --name lora_lr5e-4_seed0                # the chosen run predicts the test split, once
+python scripts/retrieval.py --encoder minilm --classifier-run <lora run>  # m2: one encoder on validation (= make m2 for all)
+python scripts/retrieval.py --choose && python scripts/retrieval.py --final  # the rule, then the test split, once
 ```
 
 ## Repository map

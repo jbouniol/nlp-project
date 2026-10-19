@@ -25,10 +25,12 @@ FAST_OVERRIDES: dict[str, Any] = {
     "lstm_epochs": 1,
     "max_length": 128,
     "n_boot": 200,
+    "n_perturb": 50,
     "out_dir": ".fast/results",  # never overwrite the committed results and figures
     "reports_dir": ".fast/reports",
     "checkpoint_dir": ".fast/checkpoints",
     "models_dir": ".fast/models",
+    "embeddings_dir": ".fast/embeddings",
 }
 
 
@@ -95,6 +97,15 @@ class Config:
     lora_targets: tuple[str, ...] = ("q_lin", "v_lin")
     lora_dropout: float = 0.05
 
+    # m2: retrieval; bank = training clauses, queries = validation clauses (docs/DECISIONS.md)
+    encoders: tuple[str, ...] = ("tfidf", "minilm", "e5", "bge", "distilbert", "legalbert")
+    retrieval_k: int = 10
+    hybrid_lambdas: tuple[float, ...] = (0.1, 0.3, 1.0, 3.0)
+    n_perturb: int = 1000  # validation clauses perturbed for the self-retrieval test
+    min_perturb_words: int = 40
+    encode_batch_size: int = 64
+    classifier_run: str | None = None  # probabilities of the hybrid filter; None = a TF-IDF refit (FAST_RUN)
+
     # Evaluation
     n_boot: int = 1000
 
@@ -104,6 +115,7 @@ class Config:
     reports_dir: str = "reports"
     checkpoint_dir: str = "checkpoints"  # Trainer checkpoints, not versioned (on Colab: a Drive folder)
     models_dir: str = "models"  # full fine-tuned weights, not versioned (on Colab: a Drive folder)
+    embeddings_dir: str = "data/embeddings"  # cached clause embeddings per encoder, rebuilt in minutes
     extra: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -122,12 +134,18 @@ class Config:
         return cls(**{**device_profile(device), **values, "device": device})
 
     @classmethod
-    def from_args(cls, argv: list[str] | None = None) -> tuple[Config, argparse.Namespace]:
-        """One `--field-name` option per field (e.g. `--lr-full 2e-5 --seed 1`), plus `--model`, `--name`."""
-        parser = argparse.ArgumentParser(description="Train or evaluate one LEDGAR classifier run.")
-        parser.add_argument("--model", choices=["lazy", "tfidf", "lstm", "bert", "lora"], default=None)
-        parser.add_argument("--name", default=None, help="run directory name under out_dir")
-        parser.add_argument("--search", action="store_true", help="validation only, under out_dir/search/")
+    def from_args(
+        cls, argv: list[str] | None = None, parser: argparse.ArgumentParser | None = None
+    ) -> tuple[Config, argparse.Namespace]:
+        """One `--field-name` option per field (e.g. `--lr-full 2e-5 --seed 1`), added to `parser`.
+
+        Without a parser, the one of scripts/train.py is built: `--model`, `--name`, `--search`.
+        """
+        if parser is None:
+            parser = argparse.ArgumentParser(description="Train or evaluate one LEDGAR classifier run.")
+            parser.add_argument("--model", choices=["lazy", "tfidf", "lstm", "bert", "lora"], default=None)
+            parser.add_argument("--name", default=None, help="run directory name under out_dir")
+            parser.add_argument("--search", action="store_true", help="validation only, under out_dir/search")
         for f in fields(cls):
             if f.name == "extra":
                 continue

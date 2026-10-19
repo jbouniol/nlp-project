@@ -260,3 +260,12 @@ def test_retrieval_table_reads_one_row_per_run(tmp_path):
     table = retrieval.retrieval_table(tmp_path)
     assert table["run"].tolist() == ["minilm", "tfidf"] and table["p_at_10"].tolist() == [0.8, 0.7]
     assert "| minilm |" in retrieval.to_markdown(table) if hasattr(retrieval, "to_markdown") else True
+
+
+def test_paired_bootstrap_macro_is_zero_for_identical_models_and_positive_for_a_better_one():
+    y = np.array([0, 0, 1, 1, 2, 2])
+    a = np.array([1.0, 0.8, 1.0, 0.6, 0.9, 0.7])
+    same = retrieval.paired_bootstrap_macro(a, a, y, n_boot=50, seed=0)
+    assert same["diff"] == 0 and same["low"] == 0 == same["high"] and not same["significant"]
+    better = retrieval.paired_bootstrap_macro(a, a - 0.3, y, n_boot=50, seed=0)
+    assert better["diff"] == pytest.approx(0.3) and better["low"] > 0 and better["significant"]

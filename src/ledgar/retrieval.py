@@ -684,3 +684,25 @@ def retrieval_table(results_dir: str | Path) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows)
+
+
+def paired_bootstrap_macro(
+    a: np.ndarray, b: np.ndarray, y_q: np.ndarray, n_boot: int = 1000, seed: int = 0
+) -> dict[str, Any]:
+    """Paired bootstrap of macro(a) - macro(b) over the same resampled queries (as `stats.paired_bootstrap`),
+    for per-query scores such as P@10; 95 % percentile interval."""
+    a, b, y_q = map(np.asarray, (a, b, y_q))
+    observed = macro_by_type(a, y_q) - macro_by_type(b, y_q)
+    rng = np.random.default_rng(seed)
+    diffs = np.empty(n_boot)
+    for r in range(n_boot):
+        idx = rng.integers(0, len(y_q), len(y_q))
+        diffs[r] = macro_by_type(a[idx], y_q[idx]) - macro_by_type(b[idx], y_q[idx])
+    low, high = np.percentile(diffs, [2.5, 97.5])
+    return {
+        "diff": float(observed),
+        "low": float(low),
+        "high": float(high),
+        "n_boot": n_boot,
+        "significant": bool(not low <= 0 <= high),
+    }

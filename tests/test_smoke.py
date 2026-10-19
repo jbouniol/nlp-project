@@ -1,5 +1,6 @@
 """End-to-end smoke run under FAST_RUN: grows with each milestone, must stay under a few minutes on CPU."""
 
+import json
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -183,3 +184,33 @@ def test_fast_run_lora_search_then_predict_test(tmp_path):
     assert final["val"]["accuracy"] > 0.05 and final["test"]["accuracy"] > 0.05, (
         "predictions line up with clauses"
     )
+
+
+@pytest.mark.slow
+def test_fast_run_retrieval_script(tmp_path):
+    """m2 on CPU: two encoders on the FAST_RUN subset, the rule, then the test split read once by --final."""
+    script = [sys.executable, str(ROOT / "scripts" / "retrieval.py"), "--fast-run", "--device", "cpu"]
+    out = ["--out-dir", str(tmp_path), "--embeddings-dir", str(tmp_path / "emb")]
+    subprocess.run([*script, "--encoder", "minilm", *out], check=True, cwd=ROOT)
+    for name in ("minilm", "minilm+center"):
+        run_dir = tmp_path / "retrieval" / name
+        assert runs.missing_files(run_dir) == ["pred_test.npz"], "a validation run has everything but test"
+        assert (run_dir / "topk_val.npz").exists() and (run_dir / "hubs.csv").exists()
+        m = runs.load_run(run_dir)["metrics"]
+        assert m["val"]["clause"]["p_at_10_macro"] > 0.05 and "test" not in m
+        assert m["probs_source"] == "tfidf refit" and set(m["val"]["hybrid"]) >= {"hard", "soft:0.1"}
+        assert 0 < m["val"]["perturbation"]["mrr"] <= 1 and len(m["val"]["constrained"]) >= 12
+    assert (tmp_path / "emb" / "minilm" / "train.npy").exists(), "embeddings cached under --embeddings-dir"
+    subprocess.run([*script, "--encoder", "tfidf", *out], check=True, cwd=ROOT)
+    assert np.isnan(runs.load_run(tmp_path / "retrieval" / "tfidf")["metrics"]["geometry"]["effective_rank"])
+    subprocess.run([*script, "--choose", *out], check=True, cwd=ROOT)
+    choice = json.loads((tmp_path / "retrieval" / "choice.json").read_text())
+    assert choice["run"] in {"minilm", "minilm+center", "tfidf"} and choice["n_candidates"] == 3 * 6
+    subprocess.run([*script, "--final", *out], check=True, cwd=ROOT)
+    final = runs.load_run(tmp_path / "retrieval" / choice["run"])["metrics"]["test"]
+    assert set(final) >= {"dense", choice["variant"], "comparison"} or choice["variant"] == "dense"
+    assert final["dense"]["clause"]["p_at_10_macro"] > 0.05 and "by_group" in final["dense"]
+    assert runs.missing_files(tmp_path / "retrieval" / choice["run"]) == []
+    assert (tmp_path / "retrieval" / choice["run"] / "topk_test.npz").exists()
+    again = subprocess.run([*script, "--final", *out], cwd=ROOT, capture_output=True, text=True)
+    assert again.returncode != 0, "the test split is predicted once"

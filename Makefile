@@ -3,7 +3,7 @@ SEED ?= 0
 NB_OUT ?= /tmp/ledgar_nb
 CODE := $(wildcard src tests scripts notebooks)  # only the folders that exist (git keeps no empty folder)
 
-.PHONY: setup lint format test smoke notebooks table m1 glove
+.PHONY: setup lint format test smoke notebooks table m1 m2 glove
 
 setup:            ## create .venv and install the package with its pinned dependencies
 	uv venv --python 3.14 .venv || python3 -m venv .venv
@@ -34,6 +34,11 @@ notebooks:        ## execute every notebook under FAST_RUN into $(NB_OUT) (commi
 
 m1:               ## TF-IDF + logistic regression with the configuration of Config -> results/tfidf
 	$(PY) scripts/train.py --model tfidf
+
+m2:               ## retrieval: every off-the-shelf encoder on validation (M2_ARGS="--classifier-run <run>")
+	for e in tfidf minilm e5 bge distilbert legalbert; do \
+		$(PY) scripts/retrieval.py --encoder $$e $(M2_ARGS) || exit 1; \
+	done
 
 glove:            ## GloVe 50-d (66 MB, 400 000 words) for the LSTM, from the gensim-data release on GitHub
 	mkdir -p data

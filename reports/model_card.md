@@ -46,6 +46,32 @@ Where it is reliable and where it is not (seed 0, test):
 | All other clauses | 9 718 | 0.82 |
 | Clauses longer than 512 tokens (their end is cut) | 175 | 0.87 |
 
+Bias audit across inferred contract kinds, party roles, named jurisdictions and formatting (`data.bias_slices`,
+`reports/bias_audit.md`, `reports/figures/bias_audit_slices.png`):
+
+| dimension | slice | test clauses | train share | accuracy | DistilBERT macro-F1 | LoRA macro-F1 | TF-IDF macro-F1 | retrieval P@10 |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| Contract kind | `credit / loan` | 1 855 | 21.0 % | 0.894 | 0.818 | 0.847 | 0.826 | 0.794 |
+| Contract kind | `M&A / purchase` | 637 | 8.8 % | 0.892 | 0.814 | 0.782 | 0.795 | 0.780 |
+| Contract kind | `indenture / securities` | 452 | 5.6 % | 0.912 | 0.766 | 0.759 | 0.768 | 0.792 |
+| Contract kind | `employment / equity` | 2 106 | 18.2 % | 0.861 | 0.732 | 0.741 | 0.763 | 0.684 |
+| Contract kind | `lease / license` | 281 | 2.5 % | **0.758** | **0.657** | **0.620** | **0.649** | **0.576** |
+| Contract kind | `general / unspecified` | 4 669 | 43.9 % | 0.883 | 0.786 | 0.766 | 0.782 | 0.763 |
+| Party role | `borrower / lender` | 1 738 | 19.7 % | 0.901 | 0.837 | 0.855 | 0.834 | 0.800 |
+| Party role | `holder / trustee / investor` | 368 | 4.3 % | 0.891 | 0.838 | 0.807 | 0.824 | 0.711 |
+| Party role | `buyer / seller` | 511 | 7.1 % | 0.908 | 0.816 | 0.784 | 0.777 | 0.805 |
+| Party role | `employee / participant` | 2 071 | 17.8 % | 0.857 | 0.713 | 0.723 | 0.751 | 0.682 |
+| Party role | `landlord / tenant / licensor` | 188 | 1.6 % | **0.734** | **0.634** | **0.643** | **0.634** | **0.529** |
+| Party role | `company / general` | 5 124 | 49.5 % | 0.882 | 0.790 | 0.774 | 0.794 | 0.764 |
+| Jurisdiction | `New York` | 358 | 3.6 % | 0.899 | 0.801 | 0.706 | 0.835 | 0.812 |
+| Jurisdiction | `California` | 65 | 0.9 % | 0.846 | **0.723** | 0.687 | **0.538** | 0.668 |
+| Jurisdiction | `Delaware` | 188 | 1.8 % | 0.888 | 0.710 | 0.675 | 0.686 | 0.737 |
+| Jurisdiction | `Texas / Nevada / Florida` | 119 | 1.4 % | 0.832 | 0.662 | 0.645 | 0.615 | 0.704 |
+| Jurisdiction | `non-US / international` | 27 | 0.3 % | 0.963 | 0.943 | 0.867 | 0.872 | 0.741 |
+| Jurisdiction | `none named` | 9 243 | 92.0 % | 0.878 | 0.819 | 0.812 | 0.821 | 0.748 |
+| Formatting | `standard case` | 9 757 | 97.4 % | 0.878 | 0.826 | 0.813 | 0.827 | 0.747 |
+| Formatting | `all-caps (>50% upper)` | 243 | 2.6 % | 0.885 | **0.517** | **0.585** | **0.519** | 0.814 |
+
 Types under 0.5 F1: *Applicable Laws* (0.23), *Assigns* (0.40, only 4 test clauses), *Venues* (0.47). The most
 confused pairs are near-synonyms: *Applicable* / *Governing Laws*, *Tax Withholdings* / *Withholdings*,
 *Defined Terms* / *Definitions*, *No Waivers* / *Waivers*, *Amendments* / *Modifications*.
@@ -56,6 +82,15 @@ confused pairs are near-synonyms: *Applicable* / *Governing Laws*, *Tax Withhold
 - **Contracts unlike its training data.** It learned from English contracts filed with the US SEC. It has not
   been evaluated on contracts in other languages (a French contract would be cut into fragments of its English
   vocabulary), on other legal systems, on consumer terms, or on scanned text with OCR errors.
+- **Commercial leases, real-estate and IP licensing contracts without review.** Only 2.5 % of LEDGAR training
+  clauses come from leases or licenses (1.6 % naming a *landlord*, *tenant* or *licensor*): accuracy drops from
+  89–91 % on credit/loan, M&A and securities clauses to **75.8 %** on *lease / license* (macro-F1 **0.657**,
+  retrieval P@10 **0.576**) and **73.4 %** on *landlord / tenant / licensor* (macro-F1 **0.634**, retrieval P@10
+  **0.529**).
+- **Conspicuous ALL-CAPS boilerplate outside standard waiver/warranty types.** While overall accuracy on ALL-CAPS
+  clauses (> 50 % uppercase, 243 test clauses) is 88.5 %, macro-F1 across the 29 types that appear in ALL-CAPS
+  drops to **0.517** because uncased WordPiece and lowercase TF-IDF erase casing and pull non-standard uppercase
+  clauses toward *Waiver Of Jury Trials*, *Warranties* and *Governing Laws*.
 - **Using its probability to skip review.** The model grows over-confident with training (its validation loss
   rises after epoch 4 while its accuracy still improves), and its errors are often made with probabilities above
   0.9. A high probability is not a guarantee.
@@ -71,9 +106,9 @@ confused pairs are near-synonyms: *Applicable* / *Governing Laws*, *Tax Withhold
 LEDGAR from LexGLUE (`coastalcph/lex_glue`, configuration `ledgar`, revision `c23fdff1`): 100 types, official
 splits of 60 000 / 10 000 / 10 000 clauses, very imbalanced (138 times more *Governing Laws* than *Books* in
 training). *Books* has no validation clause; 282 test clauses (2.8 %) also appear in the training set; 6 texts
-appear with two different labels. The dataset has no metadata on contract type, industry or parties, so
-fairness across them cannot be measured from the labels alone: the team's bias audit derives these groups from
-the text and uses `results/<run>/pred_test.csv`, whose `index` column points back to each clause.
+appear with two different labels. Because the dataset provides no contract-level metadata on agreement family,
+jurisdiction or party role, `ledgar.data.bias_slices` derives these four slices from the clause text and joins
+them to `results/<run>/pred_test.csv` via `index` (`notebooks/06_evaluation.ipynb`, `reports/bias_audit.md`).
 
 ## Reproduce
 

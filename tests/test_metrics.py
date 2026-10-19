@@ -5,7 +5,18 @@ import pytest
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 
 from ledgar import metrics
-from ledgar.data import class_weights, frequency_band, lazy_baseline, length_stats, padded_tokens
+from ledgar.data import (
+    bias_slices,
+    class_weights,
+    contract_kind,
+    frequency_band,
+    governing_jurisdiction,
+    lazy_baseline,
+    length_stats,
+    padded_tokens,
+    party_role,
+    uppercase_formatting,
+)
 
 COURSE_C = np.array([[44, 4, 2], [2, 6, 2], [1, 1, 8]])
 
@@ -44,6 +55,14 @@ def test_compute_metrics_course_case():
     logits = np.array([[2.0, 0, 0], [0, 1, 0], [0, 3, 0], [0, 0, 1]])
     m = metrics.compute_metrics((logits, np.array([0, 0, 1, 2])))
     assert m["accuracy"] == pytest.approx(0.75) and m["macro_f1"] == pytest.approx(7 / 9)
+
+
+def test_scores_and_softmax():
+    y_true, y_pred = np.array([0, 1, 1]), np.array([0, 1, 0])
+    s = metrics.scores(y_true, y_pred, n_classes=2, prefix="val_")
+    assert s["val_accuracy"] == pytest.approx(2 / 3) and s["val_macro_f1"] == pytest.approx(2 / 3)
+    probs = metrics.softmax(np.array([[0.0, 0.0], [1000.0, 999.0]]))
+    assert np.allclose(probs.sum(axis=1), 1.0) and probs[0, 0] == pytest.approx(0.5)
 
 
 def test_lazy_classifier():
@@ -105,3 +124,38 @@ def test_class_weights():
     assert balanced[0] == pytest.approx(counts.sum() / (3 * 23)), "scikit-learn's balanced formula"
     soft = class_weights(counts, "sqrt")
     assert soft.min() >= 0.5 and soft.max() <= 5 and soft[0] > soft[1] >= soft[2]
+
+
+def test_bias_audit_text_slices():
+    clauses = [
+        "The Borrower shall repay the Lenders under this Credit Agreement in New York.",
+        "The Employee shall receive a Base Salary under this Employment Agreement in California.",
+        "THE LANDLORD HEREBY LEASES THE PREMISES TO THE TENANT IN DELAWARE.",
+        "Each party agrees to keep confidential all information disclosed hereunder.",
+    ]
+    assert contract_kind(clauses).tolist() == [
+        "credit / loan",
+        "employment / equity",
+        "lease / license",
+        "general / unspecified",
+    ]
+    assert party_role(clauses).tolist() == [
+        "borrower / lender",
+        "employee / participant",
+        "landlord / tenant / licensor",
+        "company / general",
+    ]
+    assert governing_jurisdiction(clauses).tolist() == [
+        "New York",
+        "California",
+        "Delaware",
+        "none named",
+    ]
+    assert uppercase_formatting(clauses).tolist() == [
+        "standard case",
+        "standard case",
+        "all-caps (>50% upper)",
+        "standard case",
+    ]
+    slices = bias_slices(clauses)
+    assert set(slices) == {"contract kind", "party role", "jurisdiction named", "all-caps formatting"}

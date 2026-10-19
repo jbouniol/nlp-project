@@ -94,3 +94,39 @@ def plot_loss_curves(
     ax.legend()
     fig.tight_layout()
     return _save(fig, path)
+
+
+def plot_bias_slices(
+    audit: pd.DataFrame, overall_f1: float | None = None, path: str | Path | None = None
+) -> plt.Figure:
+    """Horizontal bar panels comparing DistilBERT vs TF-IDF macro-F1 across bias slices."""
+    dimensions = list(audit.index.get_level_values(0).unique())
+    fig, axes = plt.subplots(2, 2, figsize=(12, 7.5), sharex=True)
+    for ax, dim in zip(axes.ravel(), dimensions, strict=False):
+        sub = audit.loc[dim].iloc[::-1]
+        y = np.arange(len(sub))
+        labels = [f"{g} (n={int(n)})" for g, n in zip(sub.index, sub["n"], strict=True)]
+        ax.barh(y + 0.18, sub["macro_f1"], height=0.34, color=COLORS["train"], label="DistilBERT macro-F1")
+        if "tfidf_macro_f1" in sub.columns:
+            ax.barh(
+                y - 0.18,
+                sub["tfidf_macro_f1"],
+                height=0.34,
+                color=COLORS["validation"],
+                label="TF-IDF macro-F1",
+            )
+        ax.plot(sub["accuracy"], y, "o", color="#1f2937", ms=4.5, label="DistilBERT accuracy")
+        if overall_f1 is not None:
+            ax.axvline(
+                overall_f1, color="#b91c1c", ls="--", lw=1, label=f"overall macro-F1 ({overall_f1:.3f})"
+            )
+        ax.set_yticks(y, labels, fontsize=8)
+        ax.set_xlim(0.4, 1.02)
+        ax.set_title(dim, fontsize=10)
+        ax.set_xlabel("score on held-out test split", fontsize=8)
+    axes[1, 1].legend(loc="lower right", fontsize=8)
+    fig.suptitle(
+        "Bias audit across inferred contract kinds, party roles, jurisdictions and formatting", fontsize=11
+    )
+    fig.tight_layout()
+    return _save(fig, path)

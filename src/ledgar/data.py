@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Sequence
 
 import numpy as np
@@ -106,6 +107,17 @@ def length_stats(lengths: np.ndarray, thresholds: Sequence[int] = (128, 256, 512
     return stats
 
 
+def length_grouped_order(
+    lengths: np.ndarray, batch_size: int, rng: np.random.Generator, mega_batch_mult: int = 50
+) -> np.ndarray:
+    """Shuffle indices, cut into mega-batches, and sort each mega-batch by decreasing length."""
+    lengths = np.asarray(lengths)
+    order = rng.permutation(len(lengths))
+    size = mega_batch_mult * batch_size
+    chunks = [order[i : i + size] for i in range(0, len(order), size)]
+    return np.concatenate([c[np.argsort(-lengths[c], kind="stable")] for c in chunks])
+
+
 def padded_tokens(
     lengths: np.ndarray,
     max_length: int,
@@ -121,11 +133,12 @@ def padded_tokens(
     `mega_batch_mult * batch_size` clauses, sort each mega-batch by length, then cut into batches.
     """
     clipped = np.minimum(np.asarray(lengths), max_length)
-    order = np.random.default_rng(seed).permutation(len(clipped))
-    if group_by_length:
-        size = mega_batch_mult * batch_size
-        chunks = [order[i : i + size] for i in range(0, len(order), size)]
-        order = np.concatenate([c[np.argsort(-clipped[c], kind="stable")] for c in chunks])
+    rng = np.random.default_rng(seed)
+    order = (
+        length_grouped_order(clipped, batch_size, rng, mega_batch_mult)
+        if group_by_length
+        else rng.permutation(len(clipped))
+    )
     batches = [clipped[order[i : i + batch_size]] for i in range(0, len(order), batch_size)]
     return int(sum(len(b) * b.max() for b in batches))
 
@@ -194,3 +207,141 @@ def class_weights(
         w = 1 / np.sqrt(counts)
         return np.clip(w / w.mean(), *clip)
     raise ValueError(f"unknown scheme {scheme!r}")
+
+
+# --- text-derived slices for the bias audit across contracts, parties, jurisdictions and formatting ---
+
+CONTRACT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "credit / loan",
+        re.compile(
+            r"\b(?:Credit Agreement|Loan Agreement|Facility Agreement|Revolving Credit|Term Loan"
+            r"|Lenders?|Borrowers?|Administrative Agent)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "employment / equity",
+        re.compile(
+            r"\b(?:Employment Agreement|Executive|Employee|Employer|Incentive Plan|Stock Option"
+            r"|Award Agreement|Participant|Base Salary|Severance)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "indenture / securities",
+        re.compile(
+            r"\b(?:Indenture|Note(?:s)?|Debenture|Bondholder|Noteholder|Trustee|Warrant"
+            r"|Registration Rights|Securities Act)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "M&A / purchase",
+        re.compile(
+            r"\b(?:Merger Agreement|Purchase Agreement|Stock Purchase|Asset Purchase|Acquisition"
+            r"|Buyer|Seller|Purchaser|Target|Closing Date)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "lease / license",
+        re.compile(
+            r"\b(?:Lease|Landlord|Tenant|Lessor|Lessee|Premises|License Agreement"
+            r"|Licensor|Licensee|Royalty)\b",
+            re.IGNORECASE,
+        ),
+    ),
+)
+
+PARTY_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "borrower / lender",
+        re.compile(
+            r"\b(?:Borrower|Lender|Administrative Agent|Guarantor|Credit Parties|Loan Parties)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "employee / participant",
+        re.compile(r"\b(?:Employee|Executive|Employer|Participant|Grantee|Optionee)\b", re.IGNORECASE),
+    ),
+    (
+        "holder / trustee / investor",
+        re.compile(
+            r"\b(?:Stockholder|Shareholder|Holder|Noteholder|Trustee|Underwriter|Investor)\b", re.IGNORECASE
+        ),
+    ),
+    (
+        "buyer / seller",
+        re.compile(r"\b(?:Buyer|Seller|Purchaser|Vendor|Acquiror|Merging)\b", re.IGNORECASE),
+    ),
+    (
+        "landlord / tenant / licensor",
+        re.compile(r"\b(?:Landlord|Tenant|Lessor|Lessee|Licensor|Licensee)\b", re.IGNORECASE),
+    ),
+)
+
+JURISDICTION_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("New York", re.compile(r"\bNew York\b", re.IGNORECASE)),
+    ("Delaware", re.compile(r"\bDelaware\b", re.IGNORECASE)),
+    ("California", re.compile(r"\bCalifornia\b", re.IGNORECASE)),
+    ("Texas / Nevada / Florida", re.compile(r"\b(?:Texas|Nevada|Florida)\b", re.IGNORECASE)),
+    (
+        "non-US / international",
+        re.compile(
+            r"\b(?:England|Wales|United Kingdom|London|Ontario|Canada|Cayman|Bermuda|Hong Kong"
+            r"|Singapore|Switzerland|Germany|France|PRC|China|Japan|Ireland|Luxembourg)\b",
+            re.IGNORECASE,
+        ),
+    ),
+)
+
+
+def _match_first(
+    texts: Sequence[str], patterns: Sequence[tuple[str, re.Pattern[str]]], default: str
+) -> np.ndarray:
+    out = []
+    for text in texts:
+        label = default
+        for name, pattern in patterns:
+            if pattern.search(text):
+                label = name
+                break
+        out.append(label)
+    return np.array(out)
+
+
+def contract_kind(texts: Sequence[str]) -> np.ndarray:
+    """Inferred contract family of each clause from the agreement and party terms it names."""
+    return _match_first(texts, CONTRACT_PATTERNS, "general / unspecified")
+
+
+def party_role(texts: Sequence[str]) -> np.ndarray:
+    """Primary party role named in each clause (borrower/lender, employee, holder/trustee, etc.)."""
+    return _match_first(texts, PARTY_PATTERNS, "company / general")
+
+
+def governing_jurisdiction(texts: Sequence[str]) -> np.ndarray:
+    """Jurisdiction named in each clause (New York, Delaware, California, non-US, or none named)."""
+    return _match_first(texts, JURISDICTION_PATTERNS, "none named")
+
+
+def uppercase_formatting(texts: Sequence[str], threshold: float = 0.5) -> np.ndarray:
+    """'all-caps (>50% upper)' for conspicuous boilerplate clauses, else 'standard case'."""
+    out = []
+    for text in texts:
+        alpha = [c for c in text if c.isalpha()]
+        share = sum(c.isupper() for c in alpha) / len(alpha) if alpha else 0.0
+        out.append("all-caps (>50% upper)" if share > threshold else "standard case")
+    return np.array(out)
+
+
+def bias_slices(texts: Sequence[str]) -> dict[str, np.ndarray]:
+    """Text-derived slices for the bias audit across contracts, parties, jurisdictions and formatting."""
+    return {
+        "contract kind": contract_kind(texts),
+        "party role": party_role(texts),
+        "jurisdiction named": governing_jurisdiction(texts),
+        "all-caps formatting": uppercase_formatting(texts),
+    }

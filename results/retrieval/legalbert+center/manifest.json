@@ -1,0 +1,16 @@
+{
+  "git_sha": "a7449bfdaa832d51fba41614fd3d4d3cf2c3450a",
+  "git_dirty": false,
+  "date_utc": "2026-10-19T17:08:08+00:00",
+  "machine": "macOS-26.3.1-arm64-arm-64bit-Mach-O",
+  "python": "3.13.13",
+  "device": "mps",
+  "gpu": null,
+  "versions": {
+    "torch": "2.14.1",
+    "transformers": "5.19.0",
+    "scikit-learn": "1.9.1",
+    "numpy": "2.5.3"
+  },
+  "duration_s": 1494.5
+}

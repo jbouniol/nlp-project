@@ -331,3 +331,10 @@ def test_classifier_probs_pass_the_models_dir_of_the_config(monkeypatch):
     monkeypatch.setattr(retrieval, "cached_array", lambda folder, name, meta, compute: compute())
     _, source = retrieval.classifier_probs(cfg, ["a"], np.array([0]), ["q"])
     assert source == "bert_x" and seen["models_dir"] == cfg.path("/weights") and seen["device"] == "cpu"
+
+
+def test_length_sorted_batches_cover_every_text_once_in_length_order():
+    texts = ["a b c", "a", "a b c d e f", "a b", "a b c d"]
+    batches = retrieval.length_sorted_batches(texts, batch_size=2)
+    assert [b.tolist() for b in batches] == [[1, 3], [0, 4], [2]]
+    assert sorted(np.concatenate(batches).tolist()) == list(range(len(texts)))

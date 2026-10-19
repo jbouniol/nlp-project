@@ -129,10 +129,12 @@ def _classifier_encoder(spec: EncoderSpec, cfg: Config) -> Encoder:
 
     @torch.no_grad()
     def encode(texts: Sequence[str], kind: str) -> np.ndarray:
-        out = []
-        for start in range(0, len(texts), cfg.encode_batch_size):
+        parts, order = [], []
+        for idx in length_sorted_batches(
+            texts, cfg.encode_batch_size
+        ):  # little padding, as sentence-transformers
             batch = clf.tokenizer(
-                list(texts[start : start + cfg.encode_batch_size]),
+                [texts[i] for i in idx],
                 truncation=True,
                 max_length=clf.max_length,
                 padding=True,
@@ -141,11 +143,21 @@ def _classifier_encoder(spec: EncoderSpec, cfg: Config) -> Encoder:
             with clf.autocast():
                 h = clf.model.distilbert(**batch).last_hidden_state[:, 0]
                 h = torch.relu(clf.model.pre_classifier(h))
-            out.append(torch.nn.functional.normalize(h.float(), dim=1).cpu().numpy())
-        return np.concatenate(out)
+            parts.append(torch.nn.functional.normalize(h.float(), dim=1).cpu().numpy())
+            order.append(idx)
+        E = np.concatenate(parts)
+        out = np.empty_like(E)
+        out[np.concatenate(order)] = E
+        return out
 
     clf.model.eval()
     return Encoder(spec, encode, clf.max_length, clf.tokenizer)
+
+
+def length_sorted_batches(texts: Sequence[str], batch_size: int) -> list[np.ndarray]:
+    """Index batches of texts sorted by word count, so each batch is padded to a similar length."""
+    order = np.argsort([len(t.split()) for t in texts], kind="stable")
+    return [order[i : i + batch_size] for i in range(0, len(order), batch_size)]
 
 
 def cached_array(

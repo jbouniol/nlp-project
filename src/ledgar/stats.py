@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 
@@ -39,6 +41,23 @@ def mcnemar(b: int, c: int, exact: bool | None = None) -> tuple[float, float]:
     return chi2, math.erfc(math.sqrt(chi2 / 2))
 
 
+def bootstrap_interval(
+    n: int, diff_fn: Callable[[np.ndarray], float], n_boot: int = 1000, seed: int = 0
+) -> dict[str, Any]:
+    """Paired bootstrap of a difference `diff_fn(indices)` over `n_boot` resamples of 0..n-1."""
+    observed = float(diff_fn(np.arange(n)))
+    rng = np.random.default_rng(seed)
+    diffs = np.array([diff_fn(rng.integers(0, n, n)) for _ in range(n_boot)], dtype=float)
+    low, high = np.percentile(diffs, [2.5, 97.5])
+    return {
+        "diff": observed,
+        "low": float(low),
+        "high": float(high),
+        "n_boot": n_boot,
+        "significant": bool(not low <= 0 <= high),
+    }
+
+
 def paired_bootstrap(
     y_true: np.ndarray,
     pred_a: np.ndarray,
@@ -54,15 +73,13 @@ def paired_bootstrap(
     """
     y_true, pred_a, pred_b = map(np.asarray, (y_true, pred_a, pred_b))
     k = n_classes or int(max(y_true.max(), pred_a.max(), pred_b.max())) + 1
-    observed = macro_f1_score(y_true, pred_a, k) - macro_f1_score(y_true, pred_b, k)
-    rng = np.random.default_rng(seed)
-    n = len(y_true)
-    diffs = np.empty(n_boot)
-    for r in range(n_boot):
-        idx = rng.integers(0, n, n)
-        diffs[r] = macro_f1_score(y_true[idx], pred_a[idx], k) - macro_f1_score(y_true[idx], pred_b[idx], k)
-    low, high = np.percentile(diffs, [2.5, 97.5])
-    return float(observed), float(low), float(high)
+    res = bootstrap_interval(
+        len(y_true),
+        lambda idx: macro_f1_score(y_true[idx], pred_a[idx], k) - macro_f1_score(y_true[idx], pred_b[idx], k),
+        n_boot,
+        seed,
+    )
+    return res["diff"], res["low"], res["high"]
 
 
 def compare(
@@ -78,20 +95,23 @@ def compare(
     Returns the scores of both models, the contingency table, McNemar's test on per-example correctness and
     the paired bootstrap of the macro-F1 difference (A - B), with the 5 % verdict of each test.
     """
+    y_true, pred_a, pred_b = map(np.asarray, (y_true, pred_a, pred_b))
     a, b, c, d = contingency(y_true, pred_a, pred_b)
     chi2, p = mcnemar(b, c)
-    observed, low, high = paired_bootstrap(y_true, pred_a, pred_b, n_boot, seed, n_classes)
+    bootstrap = bootstrap_interval(
+        len(y_true),
+        lambda idx: (
+            macro_f1_score(y_true[idx], pred_a[idx], n_classes)
+            - macro_f1_score(y_true[idx], pred_b[idx], n_classes)
+        ),
+        n_boot,
+        seed,
+    )
     return {
         "n": len(y_true),
         "accuracy": [accuracy(y_true, pred_a), accuracy(y_true, pred_b)],
         "macro_f1": [macro_f1_score(y_true, pred_a, n_classes), macro_f1_score(y_true, pred_b, n_classes)],
         "contingency": {"both_correct": a, "only_a": b, "only_b": c, "both_wrong": d},
         "mcnemar": {"chi2": chi2, "p": p, "exact": b + c < 25, "significant": p < 0.05},
-        "bootstrap": {
-            "diff": observed,
-            "low": low,
-            "high": high,
-            "n_boot": n_boot,
-            "significant": not low <= 0 <= high,
-        },
+        "bootstrap": bootstrap,
     }

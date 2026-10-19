@@ -124,8 +124,7 @@ def _score_one(
         "c": c,
         "class_weight": class_weight or "none",
         "vocabulary": X_train.shape[1],
-        "val_accuracy": metrics.accuracy(y_val, pred),
-        "val_macro_f1": metrics.macro_f1_score(y_val, pred, cfg.n_classes),
+        **metrics.scores(y_val, pred, cfg.n_classes, prefix="val_"),
         "fit_s": round(seconds, 1),
         "converged": converged,
     }

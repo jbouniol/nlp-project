@@ -127,40 +127,22 @@ def _classifier_encoder(spec: EncoderSpec, cfg: Config) -> Encoder:
     clf = load_classifier(run_dir, device=cfg.device, models_dir=cfg.path(cfg.models_dir))
     if not hasattr(clf.model, "distilbert"):
         raise ValueError(f"{spec.model} is not a DistilBERT run: no `distilbert` body to read features from")
-
-    @torch.no_grad()
-    def encode(texts: Sequence[str], kind: str) -> np.ndarray:
-        parts, order = [], []
-        for idx in length_sorted_batches(
-            texts, cfg.encode_batch_size
-        ):  # little padding, as sentence-transformers
-            batch = clf.tokenizer(
-                [texts[i] for i in idx],
-                truncation=True,
-                max_length=clf.max_length,
-                padding=True,
-                return_tensors="pt",
-            ).to(clf.device)
-            with clf.autocast():
-                h = clf.model.distilbert(**batch).last_hidden_state[:, 0]
-                h = torch.relu(clf.model.pre_classifier(h))
-            parts.append(torch.nn.functional.normalize(h.float(), dim=1).cpu().numpy())
-            order.append(idx)
-        E = np.concatenate(parts)
-        out = np.empty_like(E)
-        out[np.concatenate(order)] = E
-        return out
-
-    clf.model.eval()
     adapter = run_dir / "adapter" / "adapter_model.safetensors"
     weights = hashlib.sha1(adapter.read_bytes()).hexdigest()[:16] if adapter.exists() else None
-    return Encoder(spec, encode, clf.max_length, clf.tokenizer, weights)
+    return Encoder(
+        spec,
+        lambda texts, kind: clf.features(texts, cfg.encode_batch_size),
+        clf.max_length,
+        clf.tokenizer,
+        weights,
+    )
 
 
 def length_sorted_batches(texts: Sequence[str], batch_size: int) -> list[np.ndarray]:
     """Index batches of texts sorted by word count, so each batch is padded to a similar length."""
-    order = np.argsort([len(t.split()) for t in texts], kind="stable")
-    return [order[i : i + batch_size] for i in range(0, len(order), batch_size)]
+    from ledgar.predict import length_sorted_batches as _batches
+
+    return _batches(texts, batch_size)
 
 
 def sha1_of_texts(texts: Sequence[str]) -> str:
@@ -248,6 +230,18 @@ class Index:
         keep = (self.labels_t[None, :] == p.argmax(dim=1)[:, None]) if hard else None
         return prior, keep
 
+    def _scored_block(
+        self, q_block: Any, probs: np.ndarray | None, lam: float | None, hard: bool
+    ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
+        """Scores of a query block after applying the hybrid soft prior and/or hard type mask."""
+        s = self._scores(q_block)
+        prior, keep = self._prior(probs, lam, hard, s.device)
+        if prior is not None:
+            s = s + prior
+        if keep is not None:
+            s = s.masked_fill(~keep, float("-inf"))
+        return s, prior, keep
+
     def search(
         self,
         Q: Any,
@@ -263,13 +257,8 @@ class Index:
         on the argmax type, and the diagonal removed when the queries are the bank itself."""
         scores, positions = [], []
         for start in range(0, Q.shape[0], block):
-            s = self._scores(Q[start : start + block])
             probs = None if type_probs is None else type_probs[start : start + block]
-            prior, keep = self._prior(probs, lam, hard, s.device)
-            if prior is not None:
-                s = s + prior
-            if keep is not None:
-                s = s.masked_fill(~keep, float("-inf"))
+            s, _, _ = self._scored_block(Q[start : start + block], probs, lam, hard)
             if exclude_self:
                 rows = torch.arange(s.shape[0], device=s.device)
                 s[rows, rows + start] = float("-inf")
@@ -293,9 +282,8 @@ class Index:
         source gets the same prior as a bank row of its type (and is masked out by a wrong hard filter)."""
         ranks = []
         for start in range(0, Q.shape[0], block):
-            s = self._scores(Q[start : start + block])
             probs = None if type_probs is None else type_probs[start : start + block]
-            prior, keep = self._prior(probs, lam, hard, s.device)
+            s, prior, keep = self._scored_block(Q[start : start + block], probs, lam, hard)
             src = torch.as_tensor(
                 np.asarray(source_scores[start : start + block], dtype=np.float32), device=s.device
             )
@@ -303,10 +291,8 @@ class Index:
                 p = torch.as_tensor(np.asarray(probs, dtype=np.float32), device=s.device)
                 y = torch.as_tensor(np.asarray(source_labels[start : start + block]), device=s.device)
                 if prior is not None:
-                    s = s + prior
                     src = src + lam * torch.log(p.clamp_min(1e-6)).gather(1, y[:, None])[:, 0]
                 if keep is not None:
-                    s = s.masked_fill(~keep, float("-inf"))
                     src = src.masked_fill(p.argmax(dim=1) != y, float("-inf"))
             ranks.append(1 + (s > src[:, None]).sum(dim=1).cpu().numpy())
         return np.concatenate(ranks)
@@ -733,18 +719,12 @@ def paired_bootstrap_macro(
 ) -> dict[str, Any]:
     """Paired bootstrap of macro(a) - macro(b) over the same resampled queries (as `stats.paired_bootstrap`),
     for per-query scores such as P@10; 95 % percentile interval."""
+    from ledgar import stats
+
     a, b, y_q = map(np.asarray, (a, b, y_q))
-    observed = macro_by_type(a, y_q) - macro_by_type(b, y_q)
-    rng = np.random.default_rng(seed)
-    diffs = np.empty(n_boot)
-    for r in range(n_boot):
-        idx = rng.integers(0, len(y_q), len(y_q))
-        diffs[r] = macro_by_type(a[idx], y_q[idx]) - macro_by_type(b[idx], y_q[idx])
-    low, high = np.percentile(diffs, [2.5, 97.5])
-    return {
-        "diff": float(observed),
-        "low": float(low),
-        "high": float(high),
-        "n_boot": n_boot,
-        "significant": bool(not low <= 0 <= high),
-    }
+    return stats.bootstrap_interval(
+        len(y_q),
+        lambda idx: macro_by_type(a[idx], y_q[idx]) - macro_by_type(b[idx], y_q[idx]),
+        n_boot,
+        seed,
+    )

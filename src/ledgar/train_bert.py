@@ -141,5 +141,6 @@ def training_memory_gb(n_frozen: int, n_trained: int, bytes_frozen: int = 4) -> 
 def initial_loss(model: torch.nn.Module, batch: dict[str, Any]) -> float:
     """Loss of the untrained model on one batch: about ln(100) = 4.61 with a random head (TP06 Ex 8)."""
     model.eval()
+    inputs = {k: v for k, v in batch.items() if k != "index"}
     with torch.no_grad():
-        return float(model(**batch).loss)
+        return float(model(**inputs).loss)

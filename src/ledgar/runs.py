@@ -13,6 +13,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from ledgar import metrics
 from ledgar.config import ROOT, Config
 
 logger = logging.getLogger(__name__)
@@ -94,10 +95,25 @@ def save_predictions(
         table["true_label"] = [label_names[i] for i in y_true]
         table["pred_label"] = [label_names[i] for i in y_pred]
     if logits is not None:
-        exp_z = np.exp(logits - logits.max(axis=1, keepdims=True))
-        table["prob_max"] = (exp_z / exp_z.sum(axis=1, keepdims=True)).max(axis=1).round(4)
+        table["prob_max"] = metrics.softmax(logits).max(axis=1).round(4)
     table.to_csv(run_dir / f"pred_{split}.csv", index=False)
     return path
+
+
+def evaluate_and_save(
+    run_dir: str | Path,
+    split: str,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    n_classes: int,
+    *,
+    logits: np.ndarray | None = None,
+    index: np.ndarray | None = None,
+    label_names: list[str] | None = None,
+) -> dict[str, float]:
+    """Write pred_<split>.{npz,csv} and return {"accuracy": .., "macro_f1": ..} for `split`."""
+    save_predictions(run_dir, split, y_true, y_pred, logits=logits, index=index, label_names=label_names)
+    return metrics.scores(y_true, y_pred, n_classes)
 
 
 def load_predictions(run_dir: str | Path, split: str) -> dict[str, np.ndarray]:

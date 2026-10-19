@@ -69,16 +69,17 @@ def test_device_profile_keeps_the_effective_batch_and_explicit_values_win():
 
 def test_save_run_roundtrip(tmp_path):
     cfg = Config.from_env(device="cpu")
+    assert Config.from_dict(cfg.to_dict()) == cfg
     run_dir = tmp_path / "results" / "dummy_seed0"
     y = np.array([0, 1, 2, 1])
     runs.save_run(run_dir, cfg, {"model": "dummy", "val": {"macro_f1": 0.5}}, duration_s=1.23)
     runs.save_predictions(run_dir, "val", y, y, logits=np.eye(3)[y], label_names=["a", "b", "c"])
     with pytest.raises(FileNotFoundError):
         runs.results_table(tmp_path / "results")  # pred_test.npz is still missing
-    runs.save_predictions(run_dir, "test", y, y[::-1])
-    runs.save_run(run_dir, cfg, {"test": {"macro_f1": 0.25, "accuracy": 0.5}})
+    test = runs.evaluate_and_save(run_dir, "test", y, np.array([0, 1, 1, 2]), n_classes=3)
+    runs.save_run(run_dir, cfg, {"test": test})
     table = runs.results_table(tmp_path / "results")
-    assert table.loc[0, "val_macro_f1"] == 0.5 and table.loc[0, "test_macro_f1"] == 0.25, "metrics are merged"
+    assert table.loc[0, "val_macro_f1"] == 0.5 and table.loc[0, "test_accuracy"] == 0.5, "metrics are merged"
     assert runs.load_predictions(run_dir, "val")["logits"].shape == (4, 3)
     assert runs.load_run(run_dir)["manifest"]["duration_s"] == 1.2
     assert "| dummy_seed0 |" in runs.to_markdown(table)

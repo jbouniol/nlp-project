@@ -170,6 +170,13 @@ class Config:
         """JSON-friendly view (tuples become lists)."""
         return {k: list(v) if isinstance(v, tuple) else v for k, v in dataclasses.asdict(self).items()}
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Config:
+        """Rebuild a Config from a dictionary (e.g. a saved config.json); lists become tuples."""
+        known = {f.name for f in fields(cls)}
+        values = {k: tuple(v) if isinstance(v, list) else v for k, v in data.items() if k in known}
+        return cls(**values)
+
     def path(self, *parts: str) -> Path:
         """Absolute path under the repository root, e.g. `cfg.path(cfg.out_dir, "tfidf")`."""
         return ROOT.joinpath(*parts)
@@ -214,7 +221,7 @@ def device_profile(device: str) -> dict[str, Any]:
     scripts/predict_test.py depends on them. Evaluation keeps no activations for the backward pass, so its
     batch only follows memory. The thresholds are not measured.
     """
-    if device == "cuda":
+    if str(device).startswith("cuda"):
         import torch
 
         precision = "bf16" if torch.cuda.is_bf16_supported(including_emulation=False) else "fp16"

@@ -15,8 +15,8 @@ import shutil
 
 import numpy as np
 
-from ledgar import data, metrics, runs
-from ledgar.config import ROOT, Config
+from ledgar import data, runs
+from ledgar.config import Config
 from ledgar.predict import load_classifier, run_config
 
 logger = logging.getLogger("predict_test")
@@ -24,19 +24,17 @@ TIE_MARGIN = 0.05
 
 
 def main(argv: list[str] | None = None) -> None:
-    env = Config.from_env()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--name", required=True)
-    parser.add_argument("--out-dir", default=str(env.path(env.out_dir)))
-    parser.add_argument("--models-dir", default=None, help="where full fine-tuned weights were saved")
-    parser.add_argument("--device", default="auto")
-    args = parser.parse_args(argv)
+    env, args = Config.from_args(argv, parser)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s: %(message)s")
 
-    src, dst = ROOT / args.out_dir / "search" / args.name, ROOT / args.out_dir / args.name
-    if (dst / "pred_test.npz").exists():
+    src = env.path(env.out_dir, "search", args.name)
+    dst = env.path(env.out_dir, args.name)
+    if (dst / "pred_test.csv").exists() or (dst / "pred_test.npz").exists():
         raise SystemExit(f"{dst} already has test predictions: the test split is predicted once")
-    clf = load_classifier(src, device=args.device, models_dir=args.models_dir)
+    models_dir = env.path(env.models_dir) if "models_dir" in vars(args) else None
+    clf = load_classifier(src, device=env.device, models_dir=models_dir)
     cfg = run_config(src)
     ledgar = data.load_ledgar(cfg)
 
@@ -61,15 +59,16 @@ def main(argv: list[str] | None = None) -> None:
     shutil.copytree(src, dst, dirs_exist_ok=True)
     y_true = np.array(ledgar["test"]["label"])  # predict & save: the test split, used once
     logits = clf.logits(ledgar["test"]["text"])
-    y_pred = logits.argmax(axis=1)
-    index = ledgar["test"]["index"]
-    runs.save_predictions(
-        dst, "test", y_true, y_pred, logits=logits, index=index, label_names=clf.label_names
+    test = runs.evaluate_and_save(
+        dst,
+        "test",
+        y_true,
+        logits.argmax(axis=1),
+        cfg.n_classes,
+        logits=logits,
+        index=ledgar["test"]["index"],
+        label_names=clf.label_names,
     )
-    test = {
-        "accuracy": metrics.accuracy(y_true, y_pred),
-        "macro_f1": metrics.macro_f1_score(y_true, y_pred, cfg.n_classes),
-    }
     runs.save_run(
         dst, cfg, {"test": test, "val_reproduced": agreement, "val_reproduced_outside_ties": agreement_clear}
     )

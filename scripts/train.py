@@ -15,7 +15,7 @@ import time
 import numpy as np
 import torch
 
-from ledgar import data, metrics, runs, text, train_bert, train_lstm, train_tfidf
+from ledgar import data, runs, text, train_bert, train_lstm, train_tfidf
 from ledgar.config import Config, set_seed
 from ledgar.models.lora import make_peft_model
 from ledgar.models.lstm import LSTMClassifier, load_glove
@@ -23,11 +23,19 @@ from ledgar.models.lstm import LSTMClassifier, load_glove
 logger = logging.getLogger("train")
 
 
-def scores(y_true: np.ndarray, y_pred: np.ndarray, n_classes: int) -> dict[str, float]:
-    return {
-        "accuracy": metrics.accuracy(y_true, y_pred),
-        "macro_f1": metrics.macro_f1_score(y_true, y_pred, n_classes),
-    }
+def run_lazy(cfg: Config, ledgar, run_dir) -> None:
+    labels = data.label_names(ledgar)
+    train_labels = np.array(ledgar["train"]["label"])
+    result: dict[str, object] = {"model": "lazy", "trainable_params": 0}
+    # predict & save: validation, then the test split, used once
+    for split, key in (("val", "validation"), ("test", "test")):
+        y_true = np.array(ledgar[key]["label"])
+        y_pred = data.lazy_baseline(train_labels, len(y_true))
+        result[split] = runs.evaluate_and_save(
+            run_dir, split, y_true, y_pred, cfg.n_classes, index=ledgar[key]["index"], label_names=labels
+        )
+    runs.save_run(run_dir, cfg, result, duration_s=0.0)
+    logger.info("lazy: val %s | test %s", result["val"], result["test"])
 
 
 def run_tfidf(cfg: Config, ledgar, run_dir) -> None:
@@ -36,15 +44,21 @@ def run_tfidf(cfg: Config, ledgar, run_dir) -> None:
         train_tfidf.make_pipeline(cfg), ledgar["train"]["text"], np.array(ledgar["train"]["label"])
     )
     n_params = train_tfidf.count_parameters(model)
-    result = {"model": "tfidf", "trainable_params": n_params, "converged": converged}
+    result: dict[str, object] = {"model": "tfidf", "trainable_params": n_params, "converged": converged}
     # predict & save: validation, then the test split, used once
     for split, key in (("val", "validation"), ("test", "test")):
         y_true = np.array(ledgar[key]["label"])
         logits = model.decision_function(ledgar[key]["text"])
-        y_pred = logits.argmax(axis=1)
-        index = ledgar[key]["index"]
-        runs.save_predictions(run_dir, split, y_true, y_pred, logits=logits, index=index, label_names=labels)
-        result[split] = scores(y_true, y_pred, cfg.n_classes)
+        result[split] = runs.evaluate_and_save(
+            run_dir,
+            split,
+            y_true,
+            logits.argmax(axis=1),
+            cfg.n_classes,
+            logits=logits,
+            index=ledgar[key]["index"],
+            label_names=labels,
+        )
     runs.save_run(run_dir, cfg, result, duration_s=seconds)
     logger.info("tfidf: val %s | test %s | %.0f s", result["val"], result["test"], seconds)
 
@@ -64,7 +78,7 @@ def run_lstm(cfg: Config, ledgar, run_dir, search: bool) -> None:
     train_loader, evals = train_lstm.make_loaders(sets.pop("train"), sets, cfg)
     set_seed(cfg.seed)  # right before the model is built
     model = LSTMClassifier(len(itos), cfg.emb_dim, cfg.hidden, cfg.n_classes, cfg.bidirectional, cfg.dropout)
-    result = {
+    result: dict[str, object] = {
         "model": "lstm",
         "vocabulary": len(itos),
         "unk_rate_val": text.unk_rate(ledgar["validation"]["text"], stoi),
@@ -77,7 +91,7 @@ def run_lstm(cfg: Config, ledgar, run_dir, search: bool) -> None:
     train_counts = np.bincount(ledgar["train"]["label"], minlength=cfg.n_classes)
     weights = data.class_weights(train_counts, cfg.lstm_class_weight) if cfg.lstm_class_weight else None
     model, history, seconds = train_lstm.fit(model, train_loader, evals["val"], cfg, class_weights=weights)
-    result["trainable_params"] = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    result["trainable_params"] = train_bert.count_parameters(model)[0]
     result["best_epoch"] = max(history, key=lambda h: h["val_macro_f1"])["epoch"]
     for (
         split,
@@ -85,9 +99,16 @@ def run_lstm(cfg: Config, ledgar, run_dir, search: bool) -> None:
     ) in evals.items():  # predict & save: validation, then (final runs only) the test split, once
         y_true, y_pred, logits = train_lstm.predict(model, loader, cfg.device)
         key = "validation" if split == "val" else "test"
-        index = ledgar[key]["index"]
-        runs.save_predictions(run_dir, split, y_true, y_pred, logits=logits, index=index, label_names=labels)
-        result[split] = scores(y_true, y_pred, cfg.n_classes)
+        result[split] = runs.evaluate_and_save(
+            run_dir,
+            split,
+            y_true,
+            y_pred,
+            cfg.n_classes,
+            logits=logits,
+            index=ledgar[key]["index"],
+            label_names=labels,
+        )
     runs.save_run(run_dir, cfg, result, log_history=history, duration_s=seconds)
     if not search:
         torch.save(model.state_dict(), run_dir / "model.pt")
@@ -108,7 +129,7 @@ def run_bert(cfg: Config, ledgar, run_dir, name: str, lora: bool, search: bool) 
         model = make_peft_model(model, cfg.lora_r, cfg.lora_alpha, cfg.lora_targets, cfg.lora_dropout)
     trainable, total = train_bert.count_parameters(model)
     first = DataCollatorWithPadding(tokenizer)([tok["train"][i] for i in range(cfg.batch_size)])
-    result = {
+    result: dict[str, object] = {
         "model": "lora" if lora else "bert",
         "trainable_params": trainable,
         "total_params": total,
@@ -131,10 +152,16 @@ def run_bert(cfg: Config, ledgar, run_dir, name: str, lora: bool, search: bool) 
         if key not in tok:
             continue
         logits = train_bert.predict_logits(trainer, tok[key])
-        y_true, y_pred = np.array(ledgar[key]["label"]), logits.argmax(axis=1)
-        index = ledgar[key]["index"]
-        runs.save_predictions(run_dir, split, y_true, y_pred, logits=logits, index=index, label_names=labels)
-        result[split] = scores(y_true, y_pred, cfg.n_classes)
+        result[split] = runs.evaluate_and_save(
+            run_dir,
+            split,
+            np.array(ledgar[key]["label"]),
+            logits.argmax(axis=1),
+            cfg.n_classes,
+            logits=logits,
+            index=ledgar[key]["index"],
+            label_names=labels,
+        )
     runs.save_run(run_dir, cfg, result, log_history=trainer.state.log_history, duration_s=seconds)
     (run_dir / "labels.json").write_text(json.dumps(labels) + "\n")
     if lora:
@@ -152,9 +179,11 @@ def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s: %(message)s")
     set_seed(cfg.seed)
     ledgar = data.load_ledgar(cfg)
-    name = args.name or (args.model if args.model == "tfidf" else f"{args.model}_seed{cfg.seed}")
+    name = args.name or (args.model if args.model in ("lazy", "tfidf") else f"{args.model}_seed{cfg.seed}")
     run_dir = cfg.path(cfg.out_dir, "search", name) if args.search else cfg.path(cfg.out_dir, name)
-    if args.model == "tfidf":
+    if args.model == "lazy":
+        run_lazy(cfg, ledgar, run_dir)
+    elif args.model == "tfidf":
         run_tfidf(cfg, ledgar, run_dir)
     elif args.model == "lstm":
         run_lstm(cfg, ledgar, run_dir, args.search)

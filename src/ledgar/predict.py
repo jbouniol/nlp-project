@@ -13,16 +13,23 @@ from __future__ import annotations
 import contextlib
 import json
 from collections.abc import Sequence
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import torch
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, PreTrainedTokenizerBase
+from transformers import AutoModelForSequenceClassification, PreTrainedTokenizerBase
 
+from ledgar import metrics, train_bert
 from ledgar.config import Config, device_profile, resolve_device
 
 AUTOCAST_DTYPES = {"bf16": torch.bfloat16, "fp16": torch.float16}
+
+
+def length_sorted_batches(texts: Sequence[str], batch_size: int) -> list[np.ndarray]:
+    """Index batches of texts sorted by word count, so each batch is padded to a similar length."""
+    order = np.argsort([len(t.split()) for t in texts], kind="stable")
+    return [order[i : i + batch_size] for i in range(0, len(order), batch_size)]
 
 
 @dataclass
@@ -38,9 +45,18 @@ class Classifier:
         """The mixed precision of the run on CUDA: the Trainer also evaluates under autocast, so the reloaded
         weights give back the saved validation predictions (the gate of scripts/predict_test.py)."""
         dtype = AUTOCAST_DTYPES.get(self.precision)
-        if self.device != "cuda" or dtype is None:
+        if not str(self.device).startswith("cuda") or dtype is None:
             return contextlib.nullcontext()
         return torch.autocast("cuda", dtype=dtype)
+
+    def _tokenize(self, batch_texts: Sequence[str]):
+        return self.tokenizer(
+            list(batch_texts),
+            truncation=True,
+            max_length=self.max_length,
+            padding=True,
+            return_tensors="pt",
+        ).to(self.device)
 
     @torch.no_grad()
     def logits(self, texts: Sequence[str], batch_size: int | None = None) -> np.ndarray:
@@ -49,31 +65,42 @@ class Classifier:
         self.model.eval()
         out = []
         for start in range(0, len(texts), batch_size):
-            batch = self.tokenizer(
-                list(texts[start : start + batch_size]),
-                truncation=True,
-                max_length=self.max_length,
-                padding=True,
-                return_tensors="pt",
-            ).to(self.device)
+            batch = self._tokenize(texts[start : start + batch_size])
             with self.autocast():
                 out.append(self.model(**batch).logits.float().cpu().numpy())
         return np.concatenate(out) if out else np.zeros((0, len(self.label_names)), dtype=np.float32)
 
+    @torch.no_grad()
+    def features(self, texts: Sequence[str], batch_size: int | None = None) -> np.ndarray:
+        """Unit penultimate features relu(pre_classifier(h_CLS)) (N, 768), in the order of `texts`."""
+        if not hasattr(self.model, "distilbert"):
+            raise ValueError("not a DistilBERT run: no `distilbert` body to read features from")
+        batch_size = batch_size or device_profile(self.device)["eval_batch_size"]
+        self.model.eval()
+        parts, order = [], []
+        for idx in length_sorted_batches(texts, batch_size):
+            batch = self._tokenize([texts[i] for i in idx])
+            with self.autocast():
+                h = self.model.distilbert(**batch).last_hidden_state[:, 0]
+                h = torch.relu(self.model.pre_classifier(h))
+            parts.append(torch.nn.functional.normalize(h.float(), dim=1).cpu().numpy())
+            order.append(idx)
+        if not parts:
+            return np.zeros((0, self.model.pre_classifier.out_features), dtype=np.float32)
+        E = np.concatenate(parts)
+        out = np.empty_like(E)
+        out[np.concatenate(order)] = E
+        return out
+
     def predict(self, texts: Sequence[str], batch_size: int | None = None) -> tuple[np.ndarray, np.ndarray]:
         """(label ids (N,), probabilities (N, 100))."""
-        z = self.logits(texts, batch_size)
-        p = np.exp(z - z.max(axis=1, keepdims=True))
-        p /= p.sum(axis=1, keepdims=True)
+        p = metrics.softmax(self.logits(texts, batch_size))
         return p.argmax(axis=1), p
 
 
 def run_config(run_dir: str | Path) -> Config:
     """The Config a run was trained with (its config.json)."""
-    saved = json.loads((Path(run_dir) / "config.json").read_text())
-    known = {f.name for f in fields(Config)}
-    values = {k: tuple(v) if isinstance(v, list) else v for k, v in saved.items() if k in known}
-    return Config(**values)
+    return Config.from_dict(json.loads((Path(run_dir) / "config.json").read_text()))
 
 
 def load_classifier(
@@ -91,12 +118,7 @@ def load_classifier(
     if kind == "lora":
         from peft import PeftModel
 
-        base = AutoModelForSequenceClassification.from_pretrained(
-            cfg.model_name,
-            num_labels=len(names),
-            id2label=dict(enumerate(names)),
-            label2id={n: i for i, n in enumerate(names)},
-        )
+        base = train_bert.make_model(cfg, names)
         model = PeftModel.from_pretrained(base, run_dir / "adapter").merge_and_unload()
     elif kind == "bert":
         model = AutoModelForSequenceClassification.from_pretrained(
@@ -105,5 +127,5 @@ def load_classifier(
     else:
         raise ValueError(f"{run_dir.name} is a {kind!r} run: only bert and lora runs can be loaded")
     device = resolve_device(device)
-    tokenizer = AutoTokenizer.from_pretrained(cfg.model_name)
+    tokenizer = train_bert.load_tokenizer(cfg)
     return Classifier(model.to(device), tokenizer, names, cfg.max_length, device, cfg.precision)

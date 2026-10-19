@@ -12,7 +12,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, Sampler
 
-from ledgar import metrics
+from ledgar import data, metrics
 from ledgar.config import Config
 from ledgar.text import ClauseDataset, collate_fn
 
@@ -30,13 +30,11 @@ class LengthGroupedBatchSampler(Sampler[list[int]]):
 
     def __init__(self, lengths: list[int], batch_size: int, seed: int = 0, mega_batch_mult: int = 50):
         self.lengths = np.asarray(lengths)
-        self.batch_size, self.mega = batch_size, mega_batch_mult * batch_size
+        self.batch_size, self.mega_batch_mult = batch_size, mega_batch_mult
         self.rng = np.random.default_rng(seed)
 
     def __iter__(self):
-        order = self.rng.permutation(len(self.lengths))
-        chunks = [order[i : i + self.mega] for i in range(0, len(order), self.mega)]
-        order = np.concatenate([c[np.argsort(-self.lengths[c], kind="stable")] for c in chunks])
+        order = data.length_grouped_order(self.lengths, self.batch_size, self.rng, self.mega_batch_mult)
         batches = [order[i : i + self.batch_size].tolist() for i in range(0, len(order), self.batch_size)]
         for b in self.rng.permutation(len(batches)):
             yield batches[b]
@@ -121,8 +119,7 @@ def fit(
         row = {
             "epoch": epoch,
             "train_loss": train_loss,
-            "val_accuracy": metrics.accuracy(y_true, y_pred),
-            "val_macro_f1": metrics.macro_f1_score(y_true, y_pred, cfg.n_classes),
+            **metrics.scores(y_true, y_pred, cfg.n_classes, prefix="val_"),
             "elapsed_s": round(time.perf_counter() - start, 1),
         }
         history.append(row)

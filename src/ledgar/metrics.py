@@ -58,13 +58,32 @@ def accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return float(np.mean(np.asarray(y_true) == np.asarray(y_pred)))
 
 
+def scores(
+    y_true: np.ndarray, y_pred: np.ndarray, n_classes: int | None = None, prefix: str = ""
+) -> dict[str, float]:
+    """{"accuracy": .., "macro_f1": ..} (with optional key prefix such as "val_")."""
+    return {
+        f"{prefix}accuracy": accuracy(y_true, y_pred),
+        f"{prefix}macro_f1": macro_f1_score(y_true, y_pred, n_classes),
+    }
+
+
+def softmax(logits: np.ndarray) -> np.ndarray:
+    """Row-wise softmax exp(z - max(z)) / sum(exp(z - max(z))) (S01 p5)."""
+    z = np.asarray(logits, dtype=np.float32)
+    if z.size == 0:
+        return z
+    exp_z = np.exp(z - z.max(axis=-1, keepdims=True))
+    return exp_z / exp_z.sum(axis=-1, keepdims=True)
+
+
 def compute_metrics(eval_pred: tuple[np.ndarray, np.ndarray]) -> dict[str, float]:
     """Trainer hook (TP06 Ex 9): `(logits, labels)` -> {"accuracy", "macro_f1"}."""
     logits, labels = eval_pred
     logits = logits[0] if isinstance(logits, tuple) else logits
     preds = np.asarray(logits).argmax(axis=-1)
     k = max(np.asarray(logits).shape[-1], int(np.max(labels)) + 1)
-    return {"accuracy": accuracy(labels, preds), "macro_f1": macro_f1_score(labels, preds, k)}
+    return scores(labels, preds, k)
 
 
 def per_class_report(
@@ -110,12 +129,5 @@ def f1_by_group(y_true: np.ndarray, y_pred: np.ndarray, groups: np.ndarray, n_cl
     rows = []
     for g in pd.unique(groups):
         mask = groups == g
-        rows.append(
-            {
-                "group": g,
-                "n": int(mask.sum()),
-                "accuracy": accuracy(y_true[mask], y_pred[mask]),
-                "macro_f1": macro_f1_score(y_true[mask], y_pred[mask], n_classes),
-            }
-        )
+        rows.append({"group": g, "n": int(mask.sum()), **scores(y_true[mask], y_pred[mask], n_classes)})
     return pd.DataFrame(rows)

@@ -36,15 +36,11 @@ def summary(r: dict) -> str:
 
 
 def main(argv: list[str] | None = None) -> None:
-    cfg = Config.from_env()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--a", required=True)
     parser.add_argument("--b", required=True)
-    parser.add_argument("--n-boot", type=int, default=cfg.n_boot)
-    parser.add_argument("--seed", type=int, default=cfg.seed)
-    parser.add_argument("--out-dir", default=cfg.out_dir)
-    args = parser.parse_args(argv)
-    result = compare_runs(args.a, args.b, args.n_boot, args.seed, args.out_dir)
+    cfg, args = Config.from_args(argv, parser)
+    result = compare_runs(args.a, args.b, cfg.n_boot, cfg.seed, cfg.out_dir)
     out = cfg.path(cfg.reports_dir, "comparisons", f"{args.a}__vs__{args.b}.json")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(result, indent=2) + "\n")

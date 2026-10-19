@@ -140,7 +140,46 @@ partial), a cross-encoder reranker (50 forward passes per query, a second model 
 
 ### Retrieval results
 
-*Generated from `results/retrieval/` by `make table`, once the runs exist.*
+*Validation, bank = training clauses; one row per bank encoding (`make table` -> `reports/retrieval_table.md`;
+details and figures in `notebooks/07_retrieval.ipynb`).*
+
+| encoder | P@10 macro | MRR | 10-NN macro-F1 | perturbation MRR | type names P@10 | constraint precision | anisotropy | encode (s) |
+|---|---|---|---|---|---|---|---|---|
+| classifier features (LoRA, 10 ep.) | 0.758 | 0.897 | 0.790 | 0.508 | 0.655 | 0.410 | 0.177 | 730 |
+| classifier features (LoRA, 10 ep.) (centred) | 0.758 | 0.896 | 0.790 | 0.510 | 0.657 | 0.453 | -0.000 | 730 |
+| Legal-BERT mean-pooled (centred) | 0.674 | 0.879 | 0.746 | 0.690 | 0.024 | 0.486 | 0.001 | 1,494 |
+| bge-small-en-v1.5 (centred) | 0.669 | 0.878 | 0.738 | 0.742 | 0.540 | 0.756 | -0.000 | 356 |
+| Legal-BERT mean-pooled | 0.668 | 0.878 | 0.743 | 0.694 | 0.030 | 0.526 | 0.796 | 1,494 |
+| TF-IDF cosine | 0.661 | 0.873 | 0.743 | 0.897 | 0.481 | 0.752 | 0.029 | 5 |
+| bge-small-en-v1.5 | 0.659 | 0.876 | 0.732 | 0.749 | 0.558 | 0.812 | 0.617 | 356 |
+| e5-small-v2 | 0.648 | 0.870 | 0.729 | 0.761 | 0.591 | 0.862 | 0.821 | 328 |
+| e5-small-v2 (centred) | 0.632 | 0.857 | 0.727 | 0.746 | 0.538 | 0.848 | -0.000 | 328 |
+| all-MiniLM-L6-v2 (centred) | 0.630 | 0.861 | 0.706 | 0.704 | 0.529 | 0.880 | -0.000 | 143 |
+| all-MiniLM-L6-v2 | 0.622 | 0.859 | 0.706 | 0.703 | 0.558 | 0.876 | 0.333 | 143 |
+| DistilBERT mean-pooled (centred) | 0.616 | 0.854 | 0.703 | 0.633 | 0.042 | 0.369 | 0.003 | 948 |
+| DistilBERT mean-pooled | 0.606 | 0.852 | 0.700 | 0.652 | 0.054 | 0.411 | 0.879 | 948 |
+
+**Outcome of the pre-registered rule** (`results/retrieval/choice.json`). 78 candidates (13 encodings x {dense, soft
+lambda in 0.1, 0.3, 1, 3, hard}); gate = 0.95 x the best perturbation MRR (0.897, TF-IDF) = 0.852; **one candidate
+passed: TF-IDF cosine, dense**. On the 10 000 test clauses, read once: macro P@10 **0.658** (validation 0.661),
+MRR 0.873, 10-NN vote macro-F1 0.737; head types 0.83, middle 0.70, tail 0.43.
+
+What the runs showed, in the order of the notebook:
+
+- The type proxy does not separate the encoders (macro P@10 0.61-0.67; the classifier's own features 0.758). The
+  within-type check does: a clause cut in half finds its source with MRR 0.90 under TF-IDF, 0.63-0.76 under every
+  dense encoder, 0.51 under the classifier's features, whose per-type collapse is the one predicted above.
+- Every hybrid variant of every encoder scores 0.80-0.81: that is the LoRA classifier's type accuracy, not
+  retrieval, and it costs 12 to 45 points of within-type MRR (a wrong predicted type removes the source clause).
+  The type is worth a filter the lawyer ticks, not one the classifier guesses.
+- Raw MLM encoders live in a cone (mean cosine between random clauses 0.80-0.88); centring recovers about a point.
+  TF-IDF's weakness is hubness: one boilerplate "entire agreement" clause appears in 414 of the 60 000 top-10 lists.
+- For lawyer *questions* the order reverses, and it is reported, not decisional: contrastive sentence encoders
+  answer type names (P@10 0.56-0.59) and keep the asked constraint in 86-88 % of the retrieved clauses (lift 4 over
+  the base rate), TF-IDF 0.48 and 75 %, Legal-BERT and DistilBERT 0.03-0.05 and no better than chance. A dense entry
+  point for questions, with TF-IDF for pasted clauses, would need its own pre-registration.
+- Not to be used for: establishing legal equivalence (textual similarity only, no lawyer validated the proxy),
+  contracts outside English US-style drafting, and clauses longer than the encoder's window are read truncated.
 
 ## How to reproduce
 

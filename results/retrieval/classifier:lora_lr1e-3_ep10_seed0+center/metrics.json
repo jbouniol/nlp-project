@@ -1,0 +1,461 @@
+{
+  "model": "retrieval",
+  "encoder": {
+    "name": "classifier:lora_lr1e-3_ep10_seed0",
+    "model": "lora_lr1e-3_ep10_seed0",
+    "revision": null,
+    "doc_prefix": "",
+    "clause_query_prefix": "",
+    "nl_query_prefix": "",
+    "max_seq_length": 512,
+    "share_truncated_bank": 0.018033333333333332,
+    "share_truncated_val": 0.0156
+  },
+  "centered": true,
+  "probs_source": "lora_lr1e-3_ep10_seed0",
+  "encode_time_s": 730.1,
+  "val": {
+    "clause": {
+      "n_queries": 10000,
+      "p_at_1": 0.8707,
+      "p_at_1_macro": 0.8152325380158693,
+      "p_at_5": 0.84416,
+      "p_at_5_macro": 0.7740029427670306,
+      "p_at_10": 0.83288,
+      "p_at_10_macro": 0.7576106734164271,
+      "mrr": 0.8962843650793652,
+      "mrr_macro": 0.8472454161544839,
+      "knn_accuracy": 0.8627,
+      "knn_macro_f1": 0.7904863758762333
+    },
+    "by_group": {
+      "band=head": {
+        "n": 4187,
+        "p_at_10": 0.919393360401242,
+        "p_at_10_macro": 0.9093272541609871
+      },
+      "band=middle": {
+        "n": 5137,
+        "p_at_10": 0.7953474790733891,
+        "p_at_10_macro": 0.7940487937721572
+      },
+      "band=tail": {
+        "n": 676,
+        "p_at_10": 0.5822485207100592,
+        "p_at_10_macro": 0.5344378756084153
+      },
+      "seen_in_train=False": {
+        "n": 9730,
+        "p_at_10": 0.8305241521068859,
+        "p_at_10_macro": 0.7556529759367678
+      },
+      "seen_in_train=True": {
+        "n": 270,
+        "p_at_10": 0.9177777777777778,
+        "p_at_10_macro": 0.8765926640926641
+      },
+      "truncated=False": {
+        "n": 9844,
+        "p_at_10": 0.8317350670459163,
+        "p_at_10_macro": 0.7564411844240236
+      },
+      "truncated=True": {
+        "n": 156,
+        "p_at_10": 0.9051282051282052,
+        "p_at_10_macro": 0.8406876069666765
+      }
+    },
+    "perturbation": {
+      "n": 2330,
+      "mrr": 0.5097458372900677,
+      "hit_at_1": 0.42618025751072963,
+      "views": {
+        "head": {
+          "n": 1000,
+          "mrr": 0.6658744352549004,
+          "hit_at_1": 0.576
+        },
+        "tail": {
+          "n": 1000,
+          "mrr": 0.2642277266573077,
+          "hit_at_1": 0.183
+        },
+        "drop_sentence": {
+          "n": 330,
+          "mrr": 0.7806231484049997,
+          "hit_at_1": 0.7090909090909091
+        }
+      }
+    },
+    "type_names": {
+      "n": 100,
+      "p_at_10": 0.657,
+      "mrr": 0.7560119047619047
+    },
+    "constrained": [
+      {
+        "question": "termination clauses with a 30-day notice period",
+        "target": "Terminations",
+        "pattern": "thirty \\(30\\) days|30 days",
+        "type_p_at_k": 0.9,
+        "constraint_precision": 0.0,
+        "base_rate": 0.0440647482,
+        "lift": 0.0
+      },
+      {
+        "question": "governing law clause choosing New York law",
+        "target": "Governing Laws",
+        "pattern": "New York",
+        "type_p_at_k": 1.0,
+        "constraint_precision": 0.4,
+        "base_rate": 0.3220713609,
+        "lift": 1.2419607843
+      },
+      {
+        "question": "governing law clause choosing Delaware law",
+        "target": "Governing Laws",
+        "pattern": "Delaware",
+        "type_p_at_k": 1.0,
+        "constraint_precision": 0.1,
+        "base_rate": 0.1891379855,
+        "lift": 0.5287145242
+      },
+      {
+        "question": "assignment clause requiring the prior written consent of the other party",
+        "target": "Assignments",
+        "pattern": "prior written consent",
+        "type_p_at_k": 1.0,
+        "constraint_precision": 0.2,
+        "base_rate": 0.3526752072,
+        "lift": 0.5670940171
+      },
+      {
+        "question": "agreement may be executed in counterparts delivered by electronic signature or facsimile",
+        "target": "Counterparts",
+        "pattern": "electronic|facsimile|pdf",
+        "type_p_at_k": 1.0,
+        "constraint_precision": 1.0,
+        "base_rate": 0.6852080758,
+        "lift": 1.4594107035
+      },
+      {
+        "question": "indemnification clause covering reasonable attorneys' fees",
+        "target": "Indemnifications",
+        "pattern": "attorneys'? fees",
+        "type_p_at_k": 0.3,
+        "constraint_precision": 0.3333333333,
+        "base_rate": 0.0491452991,
+        "lift": 6.7826086957
+      },
+      {
+        "question": "confidentiality obligations surviving for two years after termination",
+        "target": "Confidentiality",
+        "pattern": "two \\(2\\) years|2 years|twenty-four \\(24\\) months",
+        "type_p_at_k": 0.0,
+        "constraint_precision": null,
+        "base_rate": 0.0049407115,
+        "lift": null
+      },
+      {
+        "question": "notices sent by email or electronic mail are effective",
+        "target": "Notices",
+        "pattern": "e-?mail|electronic mail",
+        "type_p_at_k": 1.0,
+        "constraint_precision": 0.0,
+        "base_rate": 0.2250300842,
+        "lift": 0.0
+      },
+      {
+        "question": "arbitration under the rules of the American Arbitration Association",
+        "target": "Arbitration",
+        "pattern": "American Arbitration Association|\\bAAA\\b",
+        "type_p_at_k": 0.9,
+        "constraint_precision": 0.6666666667,
+        "base_rate": 0.5688311688,
+        "lift": 1.1719939117
+      },
+      {
+        "question": "waiver of the right to a jury trial",
+        "target": "Waiver Of Jury Trials",
+        "pattern": "jury",
+        "type_p_at_k": 1.0,
+        "constraint_precision": 1.0,
+        "base_rate": 0.984375,
+        "lift": 1.0158730159
+      },
+      {
+        "question": "severability clause",
+        "target": "Severability",
+        "pattern": null,
+        "type_p_at_k": 0.0,
+        "constraint_precision": null,
+        "base_rate": null,
+        "lift": null
+      },
+      {
+        "question": "entire agreement clause superseding all prior agreements",
+        "target": "Entire Agreements",
+        "pattern": "supersed",
+        "type_p_at_k": 0.9,
+        "constraint_precision": 0.6666666667,
+        "base_rate": 0.8239316239,
+        "lift": 0.8091286307
+      },
+      {
+        "question": "payment clause charging interest on late payments",
+        "target": "Payments",
+        "pattern": "interest",
+        "type_p_at_k": 0.3,
+        "constraint_precision": 0.3333333333,
+        "base_rate": 0.3200934579,
+        "lift": 1.0413625304
+      },
+      {
+        "question": "non-disparagement clause",
+        "target": "Non-Disparagement",
+        "pattern": null,
+        "type_p_at_k": 0.9,
+        "constraint_precision": null,
+        "base_rate": null,
+        "lift": null
+      },
+      {
+        "question": "insurance clause requiring a minimum coverage amount in dollars",
+        "target": "Insurances",
+        "pattern": "\\$\\s?[0-9][0-9,]*",
+        "type_p_at_k": 1.0,
+        "constraint_precision": 0.0,
+        "base_rate": 0.0697463768,
+        "lift": 0.0
+      },
+      {
+        "question": "withholding of taxes from payments to the employee",
+        "target": "Tax Withholdings",
+        "pattern": "withh?old",
+        "type_p_at_k": 0.1,
+        "constraint_precision": 1.0,
+        "base_rate": 0.9394736842,
+        "lift": 1.0644257703
+      },
+      {
+        "question": "change in control triggering accelerated vesting",
+        "target": "Change In Control",
+        "pattern": "vest",
+        "type_p_at_k": 1.0,
+        "constraint_precision": 0.6,
+        "base_rate": 0.4727793696,
+        "lift": 1.2690909091
+      },
+      {
+        "question": "submission to the exclusive jurisdiction of the courts of New York",
+        "target": "Submission To Jurisdiction",
+        "pattern": "New York",
+        "type_p_at_k": 0.2,
+        "constraint_precision": 0.5,
+        "base_rate": 0.6638655462,
+        "lift": 0.753164557
+      }
+    ],
+    "constrained_summary": {
+      "n": 18,
+      "type_p_at_10": 0.6944444444444443,
+      "constraint_precision": 0.45333333333333325,
+      "lift": 1.1803218699925178
+    },
+    "hybrid": {
+      "soft:0.1": {
+        "clause": {
+          "n_queries": 10000,
+          "p_at_1": 0.8799,
+          "p_at_1_macro": 0.8202065922644657,
+          "p_at_5": 0.87384,
+          "p_at_5_macro": 0.8078992825271474,
+          "p_at_10": 0.8722900000000001,
+          "p_at_10_macro": 0.8048531901346864,
+          "mrr": 0.8854323015873017,
+          "mrr_macro": 0.8264674128473218,
+          "knn_accuracy": 0.8726,
+          "knn_macro_f1": 0.8092314813882314
+        },
+        "perturbation": {
+          "n": 2330,
+          "mrr": 0.4298455541549199,
+          "hit_at_1": 0.35493562231759657,
+          "views": {
+            "head": {
+              "n": 1000,
+              "mrr": 0.5774156970119642,
+              "hit_at_1": 0.49
+            },
+            "tail": {
+              "n": 1000,
+              "mrr": 0.20022017427703218,
+              "hit_at_1": 0.137
+            },
+            "drop_sentence": {
+              "n": 330,
+              "mrr": 0.6784977875514144,
+              "hit_at_1": 0.6060606060606061
+            }
+          }
+        }
+      },
+      "soft:0.3": {
+        "clause": {
+          "n_queries": 10000,
+          "p_at_1": 0.8749,
+          "p_at_1_macro": 0.8118539211080968,
+          "p_at_5": 0.8726799999999999,
+          "p_at_5_macro": 0.806210877810982,
+          "p_at_10": 0.8722,
+          "p_at_10_macro": 0.8048207471417249,
+          "mrr": 0.8773348412698412,
+          "mrr_macro": 0.8155564391324827,
+          "knn_accuracy": 0.8719,
+          "knn_macro_f1": 0.8080737621716825
+        },
+        "perturbation": {
+          "n": 2330,
+          "mrr": 0.41005415267927575,
+          "hit_at_1": 0.33948497854077253,
+          "views": {
+            "head": {
+              "n": 1000,
+              "mrr": 0.5543563313376269,
+              "hit_at_1": 0.472
+            },
+            "tail": {
+              "n": 1000,
+              "mrr": 0.19103779297511592,
+              "hit_at_1": 0.132
+            },
+            "drop_sentence": {
+              "n": 330,
+              "mrr": 0.6364607619089991,
+              "hit_at_1": 0.5666666666666667
+            }
+          }
+        }
+      },
+      "soft:1": {
+        "clause": {
+          "n_queries": 10000,
+          "p_at_1": 0.8724,
+          "p_at_1_macro": 0.8049540440780835,
+          "p_at_5": 0.87156,
+          "p_at_5_macro": 0.8034053239431317,
+          "p_at_10": 0.87118,
+          "p_at_10_macro": 0.8029589590719365,
+          "mrr": 0.8731217857142858,
+          "mrr_macro": 0.8057192905902721,
+          "knn_accuracy": 0.8711,
+          "knn_macro_f1": 0.8071726032744878
+        },
+        "perturbation": {
+          "n": 2330,
+          "mrr": 0.40238801394532414,
+          "hit_at_1": 0.33433476394849787,
+          "views": {
+            "head": {
+              "n": 1000,
+              "mrr": 0.545034454916483,
+              "hit_at_1": 0.464
+            },
+            "tail": {
+              "n": 1000,
+              "mrr": 0.18622937274030507,
+              "hit_at_1": 0.13
+            },
+            "drop_sentence": {
+              "n": 330,
+              "mrr": 0.6251522570782339,
+              "hit_at_1": 0.5606060606060606
+            }
+          }
+        }
+      },
+      "soft:3": {
+        "clause": {
+          "n_queries": 10000,
+          "p_at_1": 0.8713,
+          "p_at_1_macro": 0.8031548478984869,
+          "p_at_5": 0.8707,
+          "p_at_5_macro": 0.8023545353282047,
+          "p_at_10": 0.8707199999999999,
+          "p_at_10_macro": 0.8024361153794186,
+          "mrr": 0.8714509523809524,
+          "mrr_macro": 0.8033301034425321,
+          "knn_accuracy": 0.8706,
+          "knn_macro_f1": 0.8067016594620084
+        },
+        "perturbation": {
+          "n": 2330,
+          "mrr": 0.40123627442770615,
+          "hit_at_1": 0.3339055793991416,
+          "views": {
+            "head": {
+              "n": 1000,
+              "mrr": 0.5436565178049145,
+              "hit_at_1": 0.463
+            },
+            "tail": {
+              "n": 1000,
+              "mrr": 0.18549303886160493,
+              "hit_at_1": 0.13
+            },
+            "drop_sentence": {
+              "n": 330,
+              "mrr": 0.6234271598485935,
+              "hit_at_1": 0.5606060606060606
+            }
+          }
+        }
+      },
+      "hard": {
+        "clause": {
+          "n_queries": 10000,
+          "p_at_1": 0.8709,
+          "p_at_1_macro": 0.8025977042579665,
+          "p_at_5": 0.8709,
+          "p_at_5_macro": 0.8025977042579665,
+          "p_at_10": 0.8709,
+          "p_at_10_macro": 0.8025977042579665,
+          "mrr": 0.8709,
+          "mrr_macro": 0.8025977042579665,
+          "knn_accuracy": 0.8709,
+          "knn_macro_f1": 0.8069575564909085
+        },
+        "perturbation": {
+          "n": 2330,
+          "mrr": 0.4005228598203267,
+          "hit_at_1": 0.33304721030042916,
+          "views": {
+            "head": {
+              "n": 1000,
+              "mrr": 0.5417862826776748,
+              "hit_at_1": 0.461
+            },
+            "tail": {
+              "n": 1000,
+              "mrr": 0.18565197590950322,
+              "hit_at_1": 0.13
+            },
+            "drop_sentence": {
+              "n": 330,
+              "mrr": 0.6235757721035856,
+              "hit_at_1": 0.5606060606060606
+            }
+          }
+        }
+      }
+    }
+  },
+  "geometry": {
+    "anisotropy": -0.00017146713798865676,
+    "effective_rank": 578.5680358186754,
+    "hubness_skew": 1.7716786009035859,
+    "hubness_max_share": 0.000155,
+    "alignment": 0.4917164444923401,
+    "uniformity": -3.7981374263763428
+  }
+}

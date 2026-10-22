@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import numpy as np
@@ -114,4 +114,70 @@ def compare(
         "contingency": {"both_correct": a, "only_a": b, "only_b": c, "both_wrong": d},
         "mcnemar": {"chi2": chi2, "p": p, "exact": b + c < 25, "significant": p < 0.05},
         "bootstrap": bootstrap,
+    }
+
+
+def compare_seeds(
+    y_true: np.ndarray,
+    preds_a: Sequence[np.ndarray],
+    preds_b: Sequence[np.ndarray],
+    n_boot: int = 1000,
+    seed: int = 0,
+    n_classes: int = 100,
+) -> dict[str, Any]:
+    """Paired multi-seed comparison across S seeds (a 1-seed deterministic baseline is broadcast to S)."""
+    y_true = np.asarray(y_true)
+    list_a = [np.asarray(p) for p in preds_a]
+    list_b = [np.asarray(p) for p in preds_b]
+    if len(list_a) == 1 and len(list_b) > 1:
+        list_a = list_a * len(list_b)
+    elif len(list_b) == 1 and len(list_a) > 1:
+        list_b = list_b * len(list_a)
+    if len(list_a) != len(list_b) or not list_a:
+        raise ValueError("preds_a and preds_b must have the same number of seeds (or 1 broadcast seed)")
+    per_seed = []
+    for pa, pb in zip(list_a, list_b, strict=True):
+        a, b, c, d = contingency(y_true, pa, pb)
+        chi2, p = mcnemar(b, c)
+        per_seed.append(
+            {
+                "accuracy": [accuracy(y_true, pa), accuracy(y_true, pb)],
+                "macro_f1": [macro_f1_score(y_true, pa, n_classes), macro_f1_score(y_true, pb, n_classes)],
+                "contingency": {"both_correct": a, "only_a": b, "only_b": c, "both_wrong": d},
+                "mcnemar": {"chi2": chi2, "p": p, "exact": b + c < 25, "significant": p < 0.05},
+            }
+        )
+    f1_a = [s["macro_f1"][0] for s in per_seed]
+    f1_b = [s["macro_f1"][1] for s in per_seed]
+    acc_a = [s["accuracy"][0] for s in per_seed]
+    acc_b = [s["accuracy"][1] for s in per_seed]
+    bootstrap = bootstrap_interval(
+        len(y_true),
+        lambda idx: float(
+            np.mean(
+                [
+                    macro_f1_score(y_true[idx], pa[idx], n_classes)
+                    - macro_f1_score(y_true[idx], pb[idx], n_classes)
+                    for pa, pb in zip(list_a, list_b, strict=True)
+                ]
+            )
+        ),
+        n_boot,
+        seed,
+    )
+    return {
+        "n": len(y_true),
+        "n_seeds": len(list_a),
+        "accuracy_mean": [float(np.mean(acc_a)), float(np.mean(acc_b))],
+        "accuracy_std": [
+            float(np.std(acc_a, ddof=1)) if len(acc_a) > 1 else 0.0,
+            float(np.std(acc_b, ddof=1)) if len(acc_b) > 1 else 0.0,
+        ],
+        "macro_f1_mean": [float(np.mean(f1_a)), float(np.mean(f1_b))],
+        "macro_f1_std": [
+            float(np.std(f1_a, ddof=1)) if len(f1_a) > 1 else 0.0,
+            float(np.std(f1_b, ddof=1)) if len(f1_b) > 1 else 0.0,
+        ],
+        "bootstrap": bootstrap,
+        "per_seed": per_seed,
     }

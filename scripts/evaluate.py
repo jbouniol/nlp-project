@@ -17,12 +17,31 @@ from ledgar import runs, stats
 from ledgar.config import ROOT, Config
 
 
+def _seed_siblings(name: str, base_dir) -> list[str]:
+    if not name.endswith("_seed0"):
+        return [name]
+    prefix = name[: -len("_seed0")]
+    siblings = [f"{prefix}_seed{s}" for s in (0, 1, 2)]
+    return siblings if all((base_dir / s).exists() for s in siblings) else [name]
+
+
 def compare_runs(a: str, b: str, n_boot: int = 1000, seed: int = 0, results: str = "results") -> dict:
-    pa = runs.load_predictions(ROOT / results / a, "test")
-    pb = runs.load_predictions(ROOT / results / b, "test")
+    base_dir = ROOT / results
+    pa = runs.load_predictions(base_dir / a, "test")
+    pb = runs.load_predictions(base_dir / b, "test")
     if not (np.array_equal(pa["index"], pb["index"]) and np.array_equal(pa["y_true"], pb["y_true"])):
         raise SystemExit("the two runs did not predict the same test clauses")
-    return {"a": a, "b": b, **stats.compare(pa["y_true"], pa["y_pred"], pb["y_pred"], n_boot, seed)}
+    out = {"a": a, "b": b, **stats.compare(pa["y_true"], pa["y_pred"], pb["y_pred"], n_boot, seed)}
+    seeds_a, seeds_b = _seed_siblings(a, base_dir), _seed_siblings(b, base_dir)
+    if len(seeds_a) > 1 or len(seeds_b) > 1:
+        preds_a = [runs.load_predictions(base_dir / s, "test")["y_pred"] for s in seeds_a]
+        preds_b = [runs.load_predictions(base_dir / s, "test")["y_pred"] for s in seeds_b]
+        out["multi_seed"] = {
+            "runs_a": seeds_a,
+            "runs_b": seeds_b,
+            **stats.compare_seeds(pa["y_true"], preds_a, preds_b, n_boot, seed),
+        }
+    return out
 
 
 def summary(r: dict) -> str:

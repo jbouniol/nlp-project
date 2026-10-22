@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from scipy.stats import binomtest
 
-from ledgar.stats import compare, contingency, mcnemar, paired_bootstrap
+from ledgar.stats import compare, compare_seeds, contingency, mcnemar, paired_bootstrap
 
 
 def test_contingency_course_case():
@@ -56,3 +56,13 @@ def test_compare_bundles_the_paired_tests():
     assert r["mcnemar"]["significant"] and r["bootstrap"]["significant"]
     same = compare(y, a, a, n_boot=50, n_classes=5)
     assert not same["mcnemar"]["significant"] and same["bootstrap"]["diff"] == 0.0
+
+
+def test_compare_seeds_multi_seed():
+    rng = np.random.default_rng(3)
+    y = rng.integers(0, 4, 300)
+    preds_a = [np.where(rng.random(300) < 0.85, y, rng.integers(0, 4, 300)) for _ in range(3)]
+    pred_b = [np.where(rng.random(300) < 0.60, y, rng.integers(0, 4, 300))]
+    res = compare_seeds(y, preds_a, pred_b, n_boot=100, n_classes=4)
+    assert res["n_seeds"] == 3 and len(res["per_seed"]) == 3
+    assert res["bootstrap"]["significant"] and res["macro_f1_mean"][0] > res["macro_f1_mean"][1]

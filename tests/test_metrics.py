@@ -159,3 +159,28 @@ def test_bias_audit_text_slices():
     ]
     slices = bias_slices(clauses)
     assert set(slices) == {"contract kind", "party role", "jurisdiction named", "all-caps formatting"}
+
+
+def test_f1_by_group_bootstrap_ci():
+    rng = np.random.default_rng(0)
+    y_true = rng.integers(0, 3, 120)
+    y_pred = np.where(rng.random(120) < 0.8, y_true, rng.integers(0, 3, 120))
+    groups = np.array(["a"] * 60 + ["b"] * 60)
+    df = metrics.f1_by_group(y_true, y_pred, groups, n_classes=3, n_boot=100, seed=0)
+    assert {"f1_low", "f1_high", "acc_low", "acc_high"} <= set(df.columns)
+    assert (df["f1_low"] <= df["macro_f1"]).all() and (df["macro_f1"] <= df["f1_high"]).all()
+
+
+def test_ece_and_post_hoc_temperature_scaling():
+    rng = np.random.default_rng(7)
+    y_true = rng.integers(0, 4, 400)
+    y_pred = np.where(rng.random(400) < 0.75, y_true, (y_true + 1) % 4)
+    prob_max = np.full(400, 0.98)  # severely overconfident
+    raw_ece = metrics.ece(y_true, y_pred, prob_max)
+    assert raw_ece == pytest.approx(0.98 - metrics.accuracy(y_true, y_pred), abs=1e-6)
+    temp = metrics.fit_temperature(y_true, y_pred, prob_max)
+    assert temp > 1.5, "overconfident predictions require T > 1"
+    cal_prob = metrics.scale_confidence(prob_max, temp)
+    assert metrics.ece(y_true, y_pred, cal_prob) < 0.05
+    with pytest.raises(ValueError):
+        metrics.scale_confidence(prob_max, 0.0)

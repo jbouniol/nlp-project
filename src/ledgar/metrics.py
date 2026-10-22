@@ -124,10 +124,94 @@ def most_confused(C: np.ndarray, k: int = 10, label_names: list[str] | None = No
     return pairs[pairs["total"] > 0].reset_index(drop=True)
 
 
-def f1_by_group(y_true: np.ndarray, y_pred: np.ndarray, groups: np.ndarray, n_classes: int) -> pd.DataFrame:
-    """Macro-F1 and accuracy inside each group of examples (e.g. head / middle / tail, truncated or not)."""
+def f1_by_group(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    groups: np.ndarray,
+    n_classes: int,
+    n_boot: int = 0,
+    seed: int = 0,
+) -> pd.DataFrame:
+    """Macro-F1 and accuracy inside each group of examples (with optional 95 % bootstrap CIs)."""
+    y_true, y_pred, groups = np.asarray(y_true), np.asarray(y_pred), np.asarray(groups)
     rows = []
     for g in pd.unique(groups):
         mask = groups == g
-        rows.append({"group": g, "n": int(mask.sum()), **scores(y_true[mask], y_pred[mask], n_classes)})
+        yt, yp = y_true[mask], y_pred[mask]
+        n_g = int(mask.sum())
+        row: dict[str, object] = {"group": g, "n": n_g, **scores(yt, yp, n_classes)}
+        if n_boot > 0 and n_g > 0:
+            rng = np.random.default_rng(seed)
+            f1s = np.empty(n_boot, dtype=float)
+            accs = np.empty(n_boot, dtype=float)
+            for b in range(n_boot):
+                idx = rng.integers(0, n_g, n_g)
+                f1s[b] = macro_f1_score(yt[idx], yp[idx], n_classes)
+                accs[b] = accuracy(yt[idx], yp[idx])
+            row["f1_low"], row["f1_high"] = map(float, np.percentile(f1s, [2.5, 97.5]))
+            row["acc_low"], row["acc_high"] = map(float, np.percentile(accs, [2.5, 97.5]))
+        rows.append(row)
     return pd.DataFrame(rows)
+
+
+def reliability_bins(
+    y_true: np.ndarray, y_pred: np.ndarray, prob_max: np.ndarray, n_bins: int = 10
+) -> pd.DataFrame:
+    """Equal-width confidence bins on [0, 1] with count, mean confidence, accuracy and |acc - conf|."""
+    correct = (np.asarray(y_true) == np.asarray(y_pred)).astype(float)
+    conf = np.asarray(prob_max, dtype=float)
+    edges = np.linspace(0.0, 1.0, n_bins + 1)
+    rows = []
+    for b in range(n_bins):
+        lo, hi = float(edges[b]), float(edges[b + 1])
+        mask = (conf >= lo) & (conf <= hi) if b == 0 else (conf > lo) & (conf <= hi)
+        n_b = int(mask.sum())
+        c_b = float(conf[mask].mean()) if n_b else float("nan")
+        a_b = float(correct[mask].mean()) if n_b else float("nan")
+        rows.append(
+            {
+                "bin_low": lo,
+                "bin_high": hi,
+                "n": n_b,
+                "conf": c_b,
+                "acc": a_b,
+                "gap": abs(a_b - c_b) if n_b else 0.0,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def ece(y_true: np.ndarray, y_pred: np.ndarray, prob_max: np.ndarray, n_bins: int = 10) -> float:
+    """Expected Calibration Error: sum_b (n_b / N) |acc(b) - conf(b)| over `n_bins` equal-width bins."""
+    bins = reliability_bins(y_true, y_pred, prob_max, n_bins)
+    total = int(bins["n"].sum())
+    if total == 0:
+        return 0.0
+    return float((bins["n"] * bins["gap"]).sum() / total)
+
+
+def scale_confidence(prob_max: np.ndarray, temperature: float) -> np.ndarray:
+    """Monotonic logit temperature scaling sigma(logit(p) / T) of top-1 confidence `prob_max`."""
+    if temperature <= 0:
+        raise ValueError("temperature must be positive")
+    p = np.clip(np.asarray(prob_max, dtype=np.float64), 1e-6, 1.0 - 1e-6)
+    logit = np.log(p / (1.0 - p)) / float(temperature)
+    return (1.0 / (1.0 + np.exp(-logit))).astype(np.float64)
+
+
+def fit_temperature(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    prob_max: np.ndarray,
+    grid: np.ndarray | None = None,
+) -> float:
+    """Fit post-hoc temperature T > 0 on validation to minimize binary correctness NLL."""
+    correct = (np.asarray(y_true) == np.asarray(y_pred)).astype(np.float64)
+    candidates = np.linspace(0.5, 5.0, 451) if grid is None else np.asarray(grid, dtype=np.float64)
+    best_t, best_nll = 1.0, float("inf")
+    for t in candidates:
+        p = np.clip(scale_confidence(prob_max, float(t)), 1e-6, 1.0 - 1e-6)
+        nll = float(-np.mean(correct * np.log(p) + (1.0 - correct) * np.log(1.0 - p)))
+        if nll < best_nll:
+            best_t, best_nll = float(t), nll
+    return round(best_t, 4)

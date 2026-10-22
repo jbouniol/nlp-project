@@ -28,5 +28,108 @@
     "high": 0.0066169357120810105,
     "n_boot": 1000,
     "significant": false
+  },
+  "multi_seed": {
+    "runs_a": [
+      "bert_lr5e-5_ep10_seed0",
+      "bert_lr5e-5_ep10_seed1",
+      "bert_lr5e-5_ep10_seed2"
+    ],
+    "runs_b": [
+      "tfidf"
+    ],
+    "n": 10000,
+    "n_seeds": 3,
+    "accuracy_mean": [
+      0.8797666666666667,
+      0.8771
+    ],
+    "accuracy_std": [
+      0.0021079215671683106,
+      0.0
+    ],
+    "macro_f1_mean": [
+      0.8270155746813804,
+      0.829081039960299
+    ],
+    "macro_f1_std": [
+      0.0035928111502817797,
+      0.0
+    ],
+    "bootstrap": {
+      "diff": -0.002065465278918636,
+      "low": -0.010247176269028949,
+      "high": 0.006010891842318669,
+      "n_boot": 1000,
+      "significant": false
+    },
+    "per_seed": [
+      {
+        "accuracy": [
+          0.8786,
+          0.8771
+        ],
+        "macro_f1": [
+          0.8258743151852274,
+          0.829081039960299
+        ],
+        "contingency": {
+          "both_correct": 8420,
+          "only_a": 366,
+          "only_b": 351,
+          "both_wrong": 863
+        },
+        "mcnemar": {
+          "chi2": 0.2733612273361227,
+          "p": 0.6010858928640317,
+          "exact": false,
+          "significant": false
+        }
+      },
+      {
+        "accuracy": [
+          0.8822,
+          0.8771
+        ],
+        "macro_f1": [
+          0.8310403956565634,
+          0.829081039960299
+        ],
+        "contingency": {
+          "both_correct": 8436,
+          "only_a": 386,
+          "only_b": 335,
+          "both_wrong": 843
+        },
+        "mcnemar": {
+          "chi2": 3.467406380027739,
+          "p": 0.06258937557650586,
+          "exact": false,
+          "significant": false
+        }
+      },
+      {
+        "accuracy": [
+          0.8785,
+          0.8771
+        ],
+        "macro_f1": [
+          0.8241320132023504,
+          0.829081039960299
+        ],
+        "contingency": {
+          "both_correct": 8423,
+          "only_a": 362,
+          "only_b": 348,
+          "both_wrong": 867
+        },
+        "mcnemar": {
+          "chi2": 0.2380281690140845,
+          "p": 0.6256339163044572,
+          "exact": false,
+          "significant": false
+        }
+      }
+    ]
   }
 }

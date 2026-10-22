@@ -231,6 +231,8 @@ def candidate_rows(root) -> tuple[list[dict[str, Any]], set[str], bool]:
         sources.add(m["probs_source"])
         has_classifier |= m["encoder"]["name"].startswith("classifier:")
         v = m["val"]
+        nl_p10 = v["type_names"]["p_at_10"]
+        c_prec = v.get("constrained_summary", {}).get("constraint_precision", 0.0)
         rows.append(
             {
                 "run": path.parent.name,
@@ -238,6 +240,8 @@ def candidate_rows(root) -> tuple[list[dict[str, Any]], set[str], bool]:
                 "variant": "dense",
                 "p10": v["clause"]["p_at_10_macro"],
                 "mrr": v["perturbation"]["mrr"],
+                "type_names_p_at_10": nl_p10,
+                "constraint_precision": c_prec,
             }
         )
         for variant, h in v["hybrid"].items():
@@ -248,6 +252,8 @@ def candidate_rows(root) -> tuple[list[dict[str, Any]], set[str], bool]:
                     "variant": variant,
                     "p10": h["clause"]["p_at_10_macro"],
                     "mrr": h["perturbation"]["mrr"],
+                    "type_names_p_at_10": nl_p10,
+                    "constraint_precision": c_prec,
                 }
             )
     return rows, sources, has_classifier
@@ -269,13 +275,41 @@ def choose(cfg: Config) -> None:
             f"mixed probability sources {sorted(sources)}: re-run the encoders with one --classifier-run"
         )
     choice = retrieval.choose(rows, GATE)
+    sem_choice = retrieval.choose_semantic(rows, GATE)
+    nl_choice = retrieval.choose_nl(rows, GATE)
     choice.update(
-        {"probs_source": sources.pop(), "date_utc": datetime.now(UTC).isoformat(timespec="seconds")}
+        {
+            "probs_source": sources.pop(),
+            "date_utc": datetime.now(UTC).isoformat(timespec="seconds"),
+            "semantic_choice": sem_choice,
+            "nl_choice": nl_choice,
+        }
     )
+    sem_npz = root / sem_choice["run"] / "topk_val.npz"
+    lex_npz = root / "tfidf" / "topk_val.npz"
+    if sem_npz.exists() and lex_npz.exists() and sem_choice["run"] != "tfidf":
+        ledgar, _ = load_bank(cfg)
+        _, y_bank, _ = split_arrays(ledgar, "train")
+        _, y_val, _ = split_arrays(ledgar, "validation")
+        sem_top, lex_top = np.load(sem_npz), np.load(lex_npz)
+        choice["val_semantic_vs_lexical"] = {
+            "semantic_run": sem_choice["run"],
+            "lexical_run": "tfidf",
+            **retrieval.compare_topk_runs(
+                sem_top["positions"],
+                lex_top["positions"],
+                y_bank,
+                y_val,
+                lex_scores=lex_top["scores"],
+                n_boot=cfg.n_boot,
+                seed=cfg.seed,
+            ),
+        }
     choice["rows"] = rows
     out.write_text(json.dumps(choice, indent=2) + "\n")
     logger.info(
-        "chosen: %s%s / %s (P@10 macro %.4f, perturbation MRR %.4f, gate %.4f, %d of %d kept) -> %s",
+        "chosen: %s%s / %s (P@10 macro %.4f, perturbation MRR %.4f, gate %.4f, %d of %d kept) | "
+        "semantic: %s / %s (P@10 %.4f) | nl: %s (constraint %.4f) -> %s",
         choice["run"],
         "" if not choice["centered"] else " (centered)",
         choice["variant"],
@@ -284,6 +318,11 @@ def choose(cfg: Config) -> None:
         choice["threshold"],
         choice["n_gated"],
         choice["n_candidates"],
+        sem_choice["run"],
+        sem_choice["variant"],
+        sem_choice["p10"],
+        nl_choice["run"],
+        nl_choice.get("constraint_precision", 0.0),
         out,
     )
 

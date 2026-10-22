@@ -687,12 +687,67 @@ def choose(rows: Sequence[dict[str, Any]], gate: float = 0.95) -> dict[str, Any]
     }
 
 
+def choose_semantic(
+    rows: Sequence[dict[str, Any]], gate: float = 0.95, nl_gate: float = 0.50
+) -> dict[str, Any]:
+    """Select the best dense semantic retriever (excluding the lexical `tfidf` baseline from the MRR ceiling
+    and enforcing a zero-shot NL `type_names_p_at_10 >= nl_gate` floor when available)."""
+    semantic_rows = [r for r in rows if r["run"] != "tfidf"]
+    if not semantic_rows:
+        return choose(rows, gate=gate)
+    best_mrr = max(r["mrr"] for r in semantic_rows)
+    threshold = gate * best_mrr
+    mrr_gated = [r for r in semantic_rows if r["mrr"] >= threshold]
+    nl_gated = [r for r in mrr_gated if r.get("type_names_p_at_10", 1.0) >= nl_gate]
+    gated = nl_gated if nl_gated else mrr_gated
+    ranked = sorted(
+        gated, key=lambda r: (-r["p10"], _COMPLEXITY[r["variant"].split(":")[0]], bool(r["centered"]))
+    )
+    return {
+        **ranked[0],
+        "threshold": threshold,
+        "nl_gate": nl_gate,
+        "n_gated": len(gated),
+        "n_candidates": len(semantic_rows),
+        "gate": gate,
+    }
+
+
+def choose_nl(rows: Sequence[dict[str, Any]], gate: float = 0.95, nl_gate: float = 0.50) -> dict[str, Any]:
+    """Select the best dense encoder for natural-language questions among within-type gated encoders."""
+    dense_rows = [r for r in rows if r["run"] != "tfidf" and r["variant"] == "dense"]
+    if not dense_rows:
+        return choose_semantic(rows, gate=gate, nl_gate=nl_gate)
+    best_mrr = max(r["mrr"] for r in dense_rows)
+    threshold = gate * best_mrr
+    mrr_gated = [r for r in dense_rows if r["mrr"] >= threshold]
+    nl_gated = [r for r in mrr_gated if r.get("type_names_p_at_10", 1.0) >= nl_gate]
+    gated = nl_gated if nl_gated else mrr_gated
+    ranked = sorted(
+        gated,
+        key=lambda r: (
+            -r.get("constraint_precision", 0.0),
+            -r.get("type_names_p_at_10", 0.0),
+            bool(r["centered"]),
+        ),
+    )
+    return {
+        **ranked[0],
+        "threshold": threshold,
+        "nl_gate": nl_gate,
+        "n_gated": len(gated),
+        "n_candidates": len(dense_rows),
+        "gate": gate,
+    }
+
+
 def retrieval_table(results_dir: str | Path) -> pd.DataFrame:
     """One row per results/retrieval/*/metrics.json, built only from those files."""
     rows = []
     for path in sorted(Path(results_dir).glob("*/metrics.json")):
         m = json.loads(path.read_text())
         clause, geo = m["val"]["clause"], m.get("geometry", {})
+        cs = m["val"].get("constrained_summary", {})
         rows.append(
             {
                 "run": path.parent.name,
@@ -705,6 +760,7 @@ def retrieval_table(results_dir: str | Path) -> pd.DataFrame:
                 "knn_macro_f1": clause["knn_macro_f1"],
                 "perturb_mrr": m["val"]["perturbation"]["mrr"],
                 "type_names_p_at_10": m["val"]["type_names"]["p_at_10"],
+                "constraint_precision": cs.get("constraint_precision"),
                 "anisotropy": geo.get("anisotropy"),
                 "effective_rank": geo.get("effective_rank"),
                 "hubness_skew": geo.get("hubness_skew"),
@@ -728,3 +784,47 @@ def paired_bootstrap_macro(
         n_boot,
         seed,
     )
+
+
+def compare_topk_runs(
+    pos_a: np.ndarray,
+    pos_b: np.ndarray,
+    y_bank: np.ndarray,
+    y_q: np.ndarray,
+    lex_scores: np.ndarray | None = None,
+    quantile: float = 0.25,
+    n_boot: int = 1000,
+    seed: int = 0,
+) -> dict[str, Any]:
+    """Paired comparison of two top-k position matrices on all queries and the low-lexical-overlap slice."""
+    from ledgar import stats
+
+    y_bank, y_q = np.asarray(y_bank), np.asarray(y_q)
+    p10_a = (y_bank[np.asarray(pos_a)] == y_q[:, None]).mean(axis=1)
+    p10_b = (y_bank[np.asarray(pos_b)] == y_q[:, None]).mean(axis=1)
+    out: dict[str, Any] = {
+        "n_queries": int(len(y_q)),
+        "p_at_10_macro": [macro_by_type(p10_a, y_q), macro_by_type(p10_b, y_q)],
+        "p_at_10_micro": [float(p10_a.mean()), float(p10_b.mean())],
+        "bootstrap_macro": paired_bootstrap_macro(p10_a, p10_b, y_q, n_boot, seed),
+    }
+    if lex_scores is not None:
+        top1_lex = np.asarray(lex_scores, dtype=float)[:, 0]
+        cutoff = float(np.quantile(top1_lex, quantile))
+        mask = top1_lex <= cutoff
+        pa_low, pb_low, y_low = p10_a[mask], p10_b[mask], y_q[mask]
+        out["low_lexical_overlap"] = {
+            "quantile": quantile,
+            "max_tfidf_cos": cutoff,
+            "n_queries": int(mask.sum()),
+            "p_at_10_macro": [macro_by_type(pa_low, y_low), macro_by_type(pb_low, y_low)],
+            "p_at_10_micro": [float(pa_low.mean()), float(pb_low.mean())],
+            "bootstrap_macro": paired_bootstrap_macro(pa_low, pb_low, y_low, n_boot, seed),
+            "bootstrap_micro": stats.bootstrap_interval(
+                int(mask.sum()),
+                lambda idx: float(pa_low[idx].mean() - pb_low[idx].mean()),
+                n_boot,
+                seed,
+            ),
+        }
+    return out

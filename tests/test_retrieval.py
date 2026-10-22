@@ -344,3 +344,62 @@ def test_length_sorted_batches_cover_every_text_once_in_length_order():
     batches = retrieval.length_sorted_batches(texts, batch_size=2)
     assert [b.tolist() for b in batches] == [[1, 3], [0, 4], [2]]
     assert sorted(np.concatenate(batches).tolist()) == list(range(len(texts)))
+
+
+def test_choose_semantic_separates_lexical_and_nl_gates():
+    rows = [
+        {
+            "run": "tfidf",
+            "centered": False,
+            "variant": "soft:0.1",
+            "p10": 0.72,
+            "mrr": 0.90,
+            "type_names_p_at_10": 0.48,
+            "constraint_precision": 0.68,
+        },
+        {
+            "run": "bge+center",
+            "centered": True,
+            "variant": "dense",
+            "p10": 0.67,
+            "mrr": 0.75,
+            "type_names_p_at_10": 0.56,
+            "constraint_precision": 0.83,
+        },
+        {
+            "run": "e5",
+            "centered": False,
+            "variant": "dense",
+            "p10": 0.64,
+            "mrr": 0.76,
+            "type_names_p_at_10": 0.59,
+            "constraint_precision": 0.86,
+        },
+        {
+            "run": "legalbert",
+            "centered": False,
+            "variant": "dense",
+            "p10": 0.69,
+            "mrr": 0.76,
+            "type_names_p_at_10": 0.14,
+            "constraint_precision": 0.11,
+        },
+    ]
+    sem = retrieval.choose_semantic(rows, gate=0.95, nl_gate=0.50)
+    nl = retrieval.choose_nl(rows, gate=0.95, nl_gate=0.50)
+    assert sem["run"] == "bge+center" and sem["n_gated"] == 2
+    assert nl["run"] == "e5"
+
+
+def test_compare_topk_runs_with_low_lexical_overlap():
+    y_bank = np.array([0, 0, 1, 1])
+    y_q = np.array([0, 0, 1, 1])
+    pos_a = np.array([[0, 1], [0, 1], [2, 3], [2, 3]])
+    pos_b = np.array([[2, 3], [0, 1], [0, 1], [2, 3]])
+    lex_scores = np.array([[0.2, 0.1], [0.9, 0.8], [0.3, 0.2], [0.95, 0.85]])
+    res = retrieval.compare_topk_runs(
+        pos_a, pos_b, y_bank, y_q, lex_scores=lex_scores, quantile=0.5, n_boot=50
+    )
+    assert res["p_at_10_macro"][0] == 1.0 and res["p_at_10_macro"][1] == 0.5
+    low = res["low_lexical_overlap"]
+    assert low["n_queries"] == 2 and low["p_at_10_micro"] == [1.0, 0.0]

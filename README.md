@@ -1,20 +1,18 @@
 # LEDGAR clause classifier
 
 [![View Presentation on Canva](https://img.shields.io/badge/Canva-View_Presentation_Deck-00C4CC?style=for-the-badge&logo=canva&logoColor=white)](https://canva.link/0ck4uo8a8nkylfp)
-[![Editable PowerPoint](https://img.shields.io/badge/PowerPoint-Editable_.pptx-B7472A?style=for-the-badge&logo=microsoftpowerpoint&logoColor=white)](docs/slides/out/ClauseGuard_AI_LEDGAR_Presentation_Editable.pptx)
-[![Complete Project Guide](https://img.shields.io/badge/Docs-Guide_Complet_(FR)-1A73E8?style=for-the-badge&logo=readthedocs&logoColor=white)](docs/GUIDE_COMPLET_PROJET.md)
 
 The classification part of a contract-review assistant: given one clause of a contract, predict its
 type among the 100 clause types of [LEDGAR](https://huggingface.co/datasets/coastalcph/lex_glue)
 (LexGLUE). Four models, from a cheap baseline to a fine-tuned transformer, evaluated with macro-F1
 on the official held-out test set and compared with paired tests.
 
-| Milestone | Model | Notebook |
-|---|---|---|
-| m1 | TF-IDF + logistic regression | `notebooks/01_explore_ledgar.ipynb`, `notebooks/02_baseline_tfidf.ipynb` |
-| m3 | BiLSTM + GloVe | `notebooks/03_lstm_Dominik.ipynb` |
-| m4 | DistilBERT, full fine-tuning and LoRA | `notebooks/04_bert_finetune_walid.ipynb`, `notebooks/05_lora_adaptation_walid.ipynb`, `notebooks/06_evaluation.ipynb` (GPU runs: `colab/`) |
-| m2 | clause retrieval: sentence-transformer index, hybrid type filter | `notebooks/07_retrieval.ipynb` |
+| Model / Task | Notebook |
+|---|---|
+| TF-IDF + logistic regression | `notebooks/01_explore_ledgar.ipynb`, `notebooks/02_baseline_tfidf.ipynb` |
+| BiLSTM + GloVe | `notebooks/03_lstm_classifier.ipynb` |
+| DistilBERT, full fine-tuning and LoRA | `notebooks/04_finetune_distilbert.ipynb`, `notebooks/05_lora.ipynb`, `notebooks/06_evaluation.ipynb` (GPU runs: `colab/`) |
+| Clause retrieval: sentence-transformer index, hybrid type filter | `notebooks/07_retrieval.ipynb` |
 
 ## Results
 
@@ -23,7 +21,7 @@ on the official held-out test set and compared with paired tests.
   (macro-F1 difference −0.003, 95 % paired-bootstrap CI [−0.013, +0.007], McNemar p = 0.60) or across all 3 seeds
   (3-seed mean difference −0.002, 95 % CI [−0.010, +0.006]). A transformer is not worth its cost on this dataset
   unless the contracts it will meet differ from LEDGAR's.
-- **Registered comparison** (3 epochs, written below before any m4 run): full fine-tuning and LoRA have the same
+- **Registered comparison** (3 epochs, written below before any transformer run): full fine-tuning and LoRA have the same
   macro-F1 (3-seed mean difference +0.002, 95 % CI [−0.005, +0.013]), but full fine-tuning is right more often on
   every seed (McNemar p = 0.0023, < 0.0001, 0.0006), so the rule names full fine-tuning.
 - After 10 epochs, full fine-tuning leads LoRA by +1.14 points on seed 0 (95 % CI [+0.002, +0.020]) and +1.26 points
@@ -56,8 +54,7 @@ BiLSTM on a laptop GPU, DistilBERT and LoRA on one A100). Per-run table: `report
 
 ## Pre-registered comparison
 
-*Written and committed before any m4 model was trained (S06 p26: "the main comparison written in the README
-before running it, then its paired test").*
+*Written and committed before any transformer model was trained.*
 
 **Question.** Full fine-tuning of DistilBERT trains 67 M parameters; LoRA trains 0.7 M (rank-8 adapters on the
 query and value projections, plus the new head). Is the full model worth it?
@@ -112,7 +109,7 @@ One line per choice; the figures behind each one are in [`docs/DECISIONS.md`](do
 - Learning rates chosen on validation (5e-5 full, 1e-3 LoRA); 10 epochs kept because validation improved.
 - Paired tests (McNemar and bootstrap) for every comparison, never two scores side by side.
 
-## Part 2: clause retrieval (m2)
+## Part 2: clause retrieval
 
 Given a pasted clause or a lawyer's question, return the most similar clauses of a clause bank. Bank = the 60 000
 training clauses; queries = the 10 000 validation clauses; the test split is read once at the end, for the chosen
@@ -122,7 +119,7 @@ measures the type, not the wording inside a type, so it is completed by two with
 **Encoders compared on validation.** TF-IDF cosine (the lexical baseline), three off-the-shelf sentence
 transformers (`all-MiniLM-L6-v2`, `e5-small-v2`, `bge-small-en-v1.5`), `distilbert-base-uncased` mean-pooled (a
 negative control: raw encoders are anisotropic), `legal-bert-base-uncased` mean-pooled (a domain MLM, no training
-of ours) and the penultimate features of the m4 LoRA classifier (expected to win the type proxy and lose the
+of ours) and the penultimate features of the LoRA classifier (expected to win the type proxy and lose the
 wording inside a type). Every dense encoder is also evaluated after centering on the bank mean. Exact search by
 matrix product; no index approximation.
 
@@ -137,7 +134,7 @@ precision among the retrieved clauses of the type, and the lift over the base ra
 
 **Hybrid.** The classifier of part 1 predicts the type of the query; the bank is then restricted to that type
 (hard) or re-scored with `cos + lambda * log p(type)` (soft, lambda in {0.1, 0.3, 1, 3}). The probabilities come
-from the m4 LoRA run `lora_lr1e-3_ep10_seed0` for every decisional run (adapter versioned in `results/`; the full fine-tuning
+from the LoRA run `lora_lr1e-3_ep10_seed0` for every decisional run (adapter versioned in `results/`; the full fine-tuning
 weights of the production candidate live on Drive only).
 
 **Pre-registered decision rule** (written before any retrieval run). Candidates = every encoder x {raw, centered} x
@@ -213,17 +210,17 @@ make test       # unit tests
 make smoke      # the whole pipeline on a per-class subset (FAST_RUN=1), then every notebook
 ```
 
-GPU runs (m4) on Colab: open [`colab/run_m4.ipynb`](https://colab.research.google.com/github/jbouniol/nlp-project/blob/main/colab/run_m4.ipynb),
+GPU runs on Colab: open [`colab/run_m4.ipynb`](https://colab.research.google.com/github/jbouniol/nlp-project/blob/main/colab/run_m4.ipynb),
 the run cards of every DistilBERT and LoRA run, in order.
 The 10-epoch follow-up has its own runner,
 [`colab/run_m4_10epochs.ipynb`](https://colab.research.google.com/github/jbouniol/nlp-project/blob/main/colab/run_m4_10epochs.ipynb). From the command line:
 
 ```bash
-python scripts/train.py --model tfidf                                  # m1 (= make m1)
-python scripts/search_lstm.py                                          # m3: one factor at a time, on validation
-python scripts/train.py --model lora --search --lr-lora 1e-3 --seed 0  # m4: a validation-only run
+python scripts/train.py --model tfidf                                  # TF-IDF baseline
+python scripts/search_lstm.py                                          # BiLSTM: one factor at a time, on validation
+python scripts/train.py --model lora --search --lr-lora 1e-3 --seed 0  # DistilBERT / LoRA: a validation-only run
 python scripts/predict_test.py --name lora_lr1e-3_seed0                # the chosen run predicts the test split, once
-python scripts/retrieval.py --encoder minilm --classifier-run lora_lr1e-3_ep10_seed0  # m2: one encoder on validation (= make m2 for all)
+python scripts/retrieval.py --encoder minilm --classifier-run lora_lr1e-3_ep10_seed0  # clause retrieval: one encoder on validation
 python scripts/retrieval.py --choose && python scripts/retrieval.py --final  # the rule, then the test split, once
 ```
 
@@ -231,11 +228,11 @@ python scripts/retrieval.py --choose && python scripts/retrieval.py --final  # t
 
 ```text
 src/ledgar/     package: config, data, metrics, models, training, run bookkeeping
-notebooks/      one notebook per milestone, readable top to bottom (outputs committed)
+notebooks/      one notebook per stage, readable top to bottom (outputs committed)
 scripts/        the same pipeline without a notebook (train.py, search_lstm.py, predict_test.py, ...)
 colab/          run cards for the GPU runs
 results/        one directory per run: config, metrics, predictions, log, manifest
 reports/        figures, results tables, paired comparisons, model card
-docs/           DECISIONS.md, GUIDE_COMPLET_PROJET.md, and slides/ (4K keynote & Canva/PPTX deck)
+docs/           DECISIONS.md, the log of design choices
 tests/          unit tests and the FAST_RUN smoke run
 ```

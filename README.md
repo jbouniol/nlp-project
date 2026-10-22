@@ -1,5 +1,9 @@
 # LEDGAR clause classifier
 
+[![View Presentation on Canva](https://img.shields.io/badge/Canva-View_Presentation_Deck-00C4CC?style=for-the-badge&logo=canva&logoColor=white)](https://canva.link/0ck4uo8a8nkylfp)
+[![Editable PowerPoint](https://img.shields.io/badge/PowerPoint-Editable_.pptx-B7472A?style=for-the-badge&logo=microsoftpowerpoint&logoColor=white)](docs/slides/out/ClauseGuard_AI_LEDGAR_Presentation_Editable.pptx)
+[![Complete Project Guide](https://img.shields.io/badge/Docs-Guide_Complet_(FR)-1A73E8?style=for-the-badge&logo=readthedocs&logoColor=white)](docs/GUIDE_COMPLET_PROJET.md)
+
 The classification part of a contract-review assistant: given one clause of a contract, predict its
 type among the 100 clause types of [LEDGAR](https://huggingface.co/datasets/coastalcph/lex_glue)
 (LexGLUE). Four models, from a cheap baseline to a fine-tuned transformer, evaluated with macro-F1
@@ -8,8 +12,8 @@ on the official held-out test set and compared with paired tests.
 | Milestone | Model | Notebook |
 |---|---|---|
 | m1 | TF-IDF + logistic regression | `notebooks/01_explore_ledgar.ipynb`, `notebooks/02_baseline_tfidf.ipynb` |
-| m3 | BiLSTM + GloVe | `notebooks/03_lstm_classifier.ipynb` |
-| m4 | DistilBERT, full fine-tuning and LoRA | `notebooks/04_finetune_distilbert.ipynb`, `notebooks/05_lora.ipynb`, `notebooks/06_evaluation.ipynb` (GPU runs: `colab/`) |
+| m3 | BiLSTM + GloVe | `notebooks/03_lstm_Dominik.ipynb` |
+| m4 | DistilBERT, full fine-tuning and LoRA | `notebooks/04_bert_finetune_walid.ipynb`, `notebooks/05_lora_adaptation_walid.ipynb`, `notebooks/06_evaluation.ipynb` (GPU runs: `colab/`) |
 | m2 | clause retrieval: sentence-transformer index, hybrid type filter | `notebooks/07_retrieval.ipynb` |
 
 ## Results
@@ -232,6 +236,6 @@ scripts/        the same pipeline without a notebook (train.py, search_lstm.py, 
 colab/          run cards for the GPU runs
 results/        one directory per run: config, metrics, predictions, log, manifest
 reports/        figures, results tables, paired comparisons, model card
-docs/           DECISIONS.md, the log of design choices
+docs/           DECISIONS.md, GUIDE_COMPLET_PROJET.md, and slides/ (4K keynote & Canva/PPTX deck)
 tests/          unit tests and the FAST_RUN smoke run
 ```

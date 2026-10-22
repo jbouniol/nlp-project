@@ -32,3 +32,8 @@ results/search/**/pred_*
 results/**/model.pt
 
 results/**/pred_*.npz
+
+# Slide animations and PowerPoint decks (high-res PNGs are versioned)
+docs/slides/gifs/
+docs/slides/videos/
+docs/slides/*.pptx

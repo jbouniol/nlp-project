@@ -31,9 +31,28 @@ decision.
 | LoRA alternative (3 seeds) | 0.814 ± 0.001 | 0.875 |
 | BiLSTM trained from scratch (3 seeds) | 0.780 ± 0.006 | 0.849 |
 
-Paired tests on the same clauses (seed 0): **no significant difference with the TF-IDF baseline** (macro-F1
-difference −0.003, 95 % bootstrap interval [−0.013, +0.007], McNemar p = 0.60); better than LoRA (+1.1 points,
-interval [+0.002, +0.020]) and than the BiLSTM (+4.6 points, p < 0.001).
+Paired tests on the same clauses:
+- **Seed 0 (pre-registered):** no significant difference with the TF-IDF baseline (macro-F1 difference −0.0032, 95 %
+  bootstrap interval [−0.0132, +0.0066], McNemar p = 0.60); better than LoRA 10 ep (+0.0114, 95 % CI [+0.0020,
+  +0.0200], McNemar p = 0.057) and than the BiLSTM (+0.0460, 95 % CI [+0.0342, +0.0568], p < 0.0001).
+- **Across all 3 seeds (`stats.compare_seeds`, 1 000 resamples):** no significant difference with TF-IDF (3-seed mean
+  macro-F1 difference −0.0021, 95 % CI [−0.0102, +0.0060]; per-seed McNemar p = 0.60, 0.063, 0.63); significantly
+  above LoRA 10 ep (+0.0126, 95 % CI [+0.0054, +0.0193]; per-seed McNemar p = 0.057, 0.0043, 0.39) and BiLSTM (+0.0468,
+  95 % CI [+0.0384, +0.0550]; p < 0.0001 on all 3 seeds). At 3 epochs, full fine-tuning and LoRA tie on 3-seed
+  macro-F1 (+0.0019, 95 % CI [−0.0054, +0.0130]) while McNemar favours full fine-tuning on every seed (p = 0.0023,
+  < 0.0001, 0.0006).
+
+Confidence calibration and post-hoc temperature scaling ($\hat{p}_{\text{cal}} = \sigma(\text{logit}(\hat{p}) / T)$,
+with $T$ fitted on `pred_val.csv` and evaluated on `pred_test.csv`, 10 equal-width bins):
+
+| run | val ECE (raw) | test ECE (raw) | test errors > 0.90 (raw) | fitted $T$ (val) | test ECE (cal) | test errors > 0.90 (cal) |
+|---|---:|---:|---:|---:|---:|---:|
+| `tfidf` | 0.0170 | 0.0216 | 18.9 % | 1.19 | 0.0163 | 14.7 % |
+| `lstm_seed0` | 0.0710 | 0.0702 | 31.9 % | 1.66 | 0.0167 | 13.5 % |
+| `bert_lr5e-5_seed0` (3 ep) | 0.0312 | 0.0333 | 24.4 % | 1.24 | 0.0122 | 16.3 % |
+| `bert_lr5e-5_ep10_seed0` (10 ep) | 0.0885 | **0.0863** | **57.1 %** | **2.47** | **0.0230** (−73 %) | **23.0 %** |
+| `lora_lr1e-3_seed0` (3 ep) | 0.0349 | 0.0322 | 20.0 % | 1.25 | 0.0156 | 11.7 % |
+| `lora_lr1e-3_ep10_seed0` (10 ep) | 0.0676 | **0.0662** | **39.0 %** | **2.23** | **0.0106** (−84 %) | **12.0 %** |
 
 Where it is reliable and where it is not (seed 0, test):
 
@@ -47,30 +66,31 @@ Where it is reliable and where it is not (seed 0, test):
 | Clauses longer than 512 tokens (their end is cut) | 175 | 0.87 |
 
 Bias audit across inferred contract kinds, party roles, named jurisdictions and formatting (`data.bias_slices`,
-`reports/bias_audit.md`, `reports/figures/bias_audit_slices.png`):
+`reports/bias_audit.md`, `reports/figures/bias_audit_slices.png`), with 95 % bootstrap confidence intervals
+(1 000 resamples):
 
-| dimension | slice | test clauses | train share | accuracy | DistilBERT macro-F1 | LoRA macro-F1 | TF-IDF macro-F1 | retrieval P@10 |
+| dimension | slice | test clauses | train share | accuracy | DistilBERT macro-F1 [95 % CI] | LoRA macro-F1 | TF-IDF macro-F1 | retrieval P@10 |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
-| Contract kind | `credit / loan` | 1 855 | 21.0 % | 0.894 | 0.818 | 0.847 | 0.826 | 0.794 |
-| Contract kind | `M&A / purchase` | 637 | 8.8 % | 0.892 | 0.814 | 0.782 | 0.795 | 0.780 |
-| Contract kind | `indenture / securities` | 452 | 5.6 % | 0.912 | 0.766 | 0.759 | 0.768 | 0.792 |
-| Contract kind | `employment / equity` | 2 106 | 18.2 % | 0.861 | 0.732 | 0.741 | 0.763 | 0.684 |
-| Contract kind | `lease / license` | 281 | 2.5 % | **0.758** | **0.657** | **0.620** | **0.649** | **0.576** |
-| Contract kind | `general / unspecified` | 4 669 | 43.9 % | 0.883 | 0.786 | 0.766 | 0.782 | 0.763 |
-| Party role | `borrower / lender` | 1 738 | 19.7 % | 0.901 | 0.837 | 0.855 | 0.834 | 0.800 |
-| Party role | `holder / trustee / investor` | 368 | 4.3 % | 0.891 | 0.838 | 0.807 | 0.824 | 0.711 |
-| Party role | `buyer / seller` | 511 | 7.1 % | 0.908 | 0.816 | 0.784 | 0.777 | 0.805 |
-| Party role | `employee / participant` | 2 071 | 17.8 % | 0.857 | 0.713 | 0.723 | 0.751 | 0.682 |
-| Party role | `landlord / tenant / licensor` | 188 | 1.6 % | **0.734** | **0.634** | **0.643** | **0.634** | **0.529** |
-| Party role | `company / general` | 5 124 | 49.5 % | 0.882 | 0.790 | 0.774 | 0.794 | 0.764 |
-| Jurisdiction | `New York` | 358 | 3.6 % | 0.899 | 0.801 | 0.706 | 0.835 | 0.812 |
-| Jurisdiction | `California` | 65 | 0.9 % | 0.846 | **0.723** | 0.687 | **0.538** | 0.668 |
-| Jurisdiction | `Delaware` | 188 | 1.8 % | 0.888 | 0.710 | 0.675 | 0.686 | 0.737 |
-| Jurisdiction | `Texas / Nevada / Florida` | 119 | 1.4 % | 0.832 | 0.662 | 0.645 | 0.615 | 0.704 |
-| Jurisdiction | `non-US / international` | 27 | 0.3 % | 0.963 | 0.943 | 0.867 | 0.872 | 0.741 |
-| Jurisdiction | `none named` | 9 243 | 92.0 % | 0.878 | 0.819 | 0.812 | 0.821 | 0.748 |
-| Formatting | `standard case` | 9 757 | 97.4 % | 0.878 | 0.826 | 0.813 | 0.827 | 0.747 |
-| Formatting | `all-caps (>50% upper)` | 243 | 2.6 % | 0.885 | **0.517** | **0.585** | **0.519** | 0.814 |
+| Contract kind | `credit / loan` | 1 855 | 21.0 % | 0.894 | 0.818 [0.793, 0.844] | 0.847 | 0.826 | 0.794 |
+| Contract kind | `M&A / purchase` | 637 | 8.8 % | 0.892 | 0.814 [0.774, 0.858] | 0.782 | 0.795 | 0.780 |
+| Contract kind | `indenture / securities` | 452 | 5.6 % | 0.912 | 0.766 [0.720, 0.828] | 0.759 | 0.768 | 0.792 |
+| Contract kind | `employment / equity` | 2 106 | 18.2 % | 0.861 | 0.732 [0.698, 0.768] | 0.741 | 0.763 | 0.684 |
+| Contract kind | `lease / license` | 281 | 2.5 % | **0.758** | **0.657 [0.600, 0.727]** | **0.620** | **0.649** | **0.576** |
+| Contract kind | `general / unspecified` | 4 669 | 43.9 % | 0.883 | 0.786 [0.765, 0.807] | 0.766 | 0.782 | 0.763 |
+| Party role | `borrower / lender` | 1 738 | 19.7 % | 0.901 | 0.837 [0.811, 0.862] | 0.855 | 0.834 | 0.800 |
+| Party role | `holder / trustee / investor` | 368 | 4.3 % | 0.891 | 0.838 [0.792, 0.895] | 0.807 | 0.824 | 0.711 |
+| Party role | `buyer / seller` | 511 | 7.1 % | 0.908 | 0.816 [0.768, 0.868] | 0.784 | 0.777 | 0.805 |
+| Party role | `employee / participant` | 2 071 | 17.8 % | 0.857 | 0.713 [0.683, 0.748] | 0.723 | 0.751 | 0.682 |
+| Party role | `landlord / tenant / licensor` | 188 | 1.6 % | **0.734** | **0.634 [0.573, 0.712]** | **0.643** | **0.634** | **0.529** |
+| Party role | `company / general` | 5 124 | 49.5 % | 0.882 | 0.790 [0.770, 0.811] | 0.774 | 0.794 | 0.764 |
+| Jurisdiction | `New York` | 358 | 3.6 % | 0.899 | 0.801 [0.737, 0.869] | 0.706 | 0.835 | 0.812 |
+| Jurisdiction | `California` | 65 | 0.9 % | 0.846 | 0.723 [0.581, 0.879] | 0.687 | 0.538 | 0.668 |
+| Jurisdiction | `Delaware` | 188 | 1.8 % | 0.888 | 0.710 [0.642, 0.775] | 0.675 | 0.686 | 0.737 |
+| Jurisdiction | `Texas / Nevada / Florida` | 119 | 1.4 % | 0.832 | 0.662 [0.556, 0.785] | 0.645 | 0.615 | 0.704 |
+| Jurisdiction | `non-US / international` | 27 | 0.3 % | 0.963 | 0.943 [0.893, 1.000] | 0.867 | 0.872 | 0.741 |
+| Jurisdiction | `none named` | 9 243 | 92.0 % | 0.878 | 0.819 [0.806, 0.832] | 0.812 | 0.821 | 0.748 |
+| Formatting | `standard case` | 9 757 | 97.4 % | 0.878 | 0.826 [0.815, 0.838] | 0.813 | 0.827 | 0.747 |
+| Formatting | `all-caps (>50% upper)` | 243 | 2.6 % | 0.885 | **0.517 [0.454, 0.667]** | **0.585** | **0.519** | 0.814 |
 
 Types under 0.5 F1: *Applicable Laws* (0.23), *Assigns* (0.40, only 4 test clauses), *Venues* (0.47). The most
 confused pairs are near-synonyms: *Applicable* / *Governing Laws*, *Tax Withholdings* / *Withholdings*,
@@ -91,9 +111,11 @@ confused pairs are near-synonyms: *Applicable* / *Governing Laws*, *Tax Withhold
   clauses (> 50 % uppercase, 243 test clauses) is 88.5 %, macro-F1 across the 29 types that appear in ALL-CAPS
   drops to **0.517** because uncased WordPiece and lowercase TF-IDF erase casing and pull non-standard uppercase
   clauses toward *Waiver Of Jury Trials*, *Warranties* and *Governing Laws*.
-- **Using its probability to skip review.** The model grows over-confident with training (its validation loss
-  rises after epoch 4 while its accuracy still improves), and its errors are often made with probabilities above
-  0.9. A high probability is not a guarantee.
+- **Using its probability to skip review.** The model grows over-confident with training: from 3 to 10 epochs its
+  test ECE rises from 0.033 to **0.086** (and **57.1 %** of its test errors have raw confidence > 0.90). Post-hoc
+  temperature scaling fitted on validation ($T = 2.47$, `metrics.fit_temperature`) reduces test ECE by 73 % to
+  **0.023** (and by 84 % to **0.011** on LoRA 10 ep with $T = 2.23$), and is mandatory before displaying any
+  confidence score, but even calibrated confidence must never bypass human review.
 - **Telling apart near-synonym types on its own.** *Applicable* / *Governing Laws*, the two withholding types, the
   definition types and the waiver types are where most errors are; for some of these pairs the labels themselves
   disagree (identical clauses are labelled both *Waivers* and *No Waivers*, or both *Applicable* and *Governing

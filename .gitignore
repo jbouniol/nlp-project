@@ -33,7 +33,6 @@ results/**/model.pt
 
 results/**/pred_*.npz
 
-# Slide animations and PowerPoint decks (high-res PNGs are versioned)
-docs/slides/gifs/
-docs/slides/videos/
-docs/slides/*.pptx
+# Local slides and internal guide (Canva link is in README.md)
+docs/slides/
+docs/GUIDE_COMPLET_PROJET.md
